@@ -65,35 +65,114 @@ app.use((req, res, next) => {
 app.use('/', impresorasRoutes);
 
 // Endpoint de Login
+// Endpoint de Login CON VALIDACIÓN DE LICENCIA
 app.post('/login', async (req, res) => {
   const { email, password, ciudad } = req.body;
   
   try {
+    // 1. Buscar usuario
     const usuario = await Usuario.findOne({ email, ciudad });
     
     if (!usuario) {
-      return res.status(401).json({ error: 'Usuario no encontrado' });
+      return res.status(401).json({ 
+        error: 'Usuario no encontrado',
+        codigo: 'USUARIO_NO_ENCONTRADO'
+      });
     }
 
+    // 2. Verificar contraseña
     const passwordOk = await bcrypt.compare(password, usuario.password);
     if (!passwordOk) {
-      return res.status(401).json({ error: 'Contraseña incorrecta' });
+      return res.status(401).json({ 
+        error: 'Contraseña incorrecta',
+        codigo: 'CONTRASENA_INCORRECTA'
+      });
     }
 
-    if (!usuario.activo) {
-      return res.status(403).json({ error: 'Licencia inactiva, contacta a soporte' });
+    // 3. VERIFICAR LICENCIA (NUEVA LÓGICA)
+    const ahora = new Date();
+    let puedeAcceder = false;
+    let mensajeError = '';
+    let codigoError = '';
+
+    // CASO A: Tiene licencia activa (ya pagó)
+    if (usuario.activo && usuario.fechaExpiracionLicencia > ahora) {
+      puedeAcceder = true;
+    }
+    // CASO B: Está en trial vigente
+    else if (usuario.licenciaTrial && usuario.fechaExpiracionTrial > ahora) {
+      puedeAcceder = true;
+    }
+    // CASO C: Trial expirado
+    else if (usuario.licenciaTrial && usuario.fechaExpiracionTrial <= ahora) {
+      puedeAcceder = false;
+      mensajeError = `Tu trial expiró el ${usuario.fechaExpiracionTrial.toLocaleDateString()}.`;
+      codigoError = 'TRIAL_EXPIRADO';
+    }
+    // CASO D: Starter/Premium sin pagar (activo = false)
+    else if (usuario.plan !== 'trial' && !usuario.activo) {
+      puedeAcceder = false;
+      mensajeError = 'Licencia pendiente de pago. Por favor completa el pago para activar tu cuenta.';
+      codigoError = 'PENDIENTE_PAGO';
+    }
+    // CASO E: Licencia expirada (pagó pero expiró)
+    else if (usuario.activo && usuario.fechaExpiracionLicencia <= ahora) {
+      puedeAcceder = false;
+      mensajeError = 'Tu licencia ha expirado. Por favor renueva tu suscripción.';
+      codigoError = 'LICENCIA_EXPIRADA';
+    }
+    // CASO F: Cualquier otra situación
+    else {
+      puedeAcceder = false;
+      mensajeError = 'Licencia no válida. Contacta a soporte.';
+      codigoError = 'LICENCIA_INVALIDA';
     }
 
+    // 4. Si NO puede acceder, retornar error
+    if (!puedeAcceder) {
+      return res.status(403).json({
+        error: mensajeError,
+        codigo: codigoError,
+        datosLicencia: {
+          plan: usuario.plan,
+          activo: usuario.activo,
+          licenciaTrial: usuario.licenciaTrial,
+          expiraTrial: usuario.fechaExpiracionTrial,
+          expiraLicencia: usuario.fechaExpiracionLicencia
+        }
+      });
+    }
+
+    // 5. Si PUEDE acceder, calcular días restantes (si es trial)
+    let diasRestantes = null;
+    if (usuario.licenciaTrial && usuario.fechaExpiracionTrial > ahora) {
+      diasRestantes = Math.ceil((usuario.fechaExpiracionTrial - ahora) / (1000 * 60 * 60 * 24));
+    }
+
+    // 6. Login exitoso
     res.json({ 
+      success: true,
       message: 'Login exitoso',
       empresaId: usuario.empresaId,
       email: usuario.email,
-      ciudad: usuario.ciudad
+      ciudad: usuario.ciudad,
+      licencia: {
+        plan: usuario.plan,
+        activo: usuario.activo,
+        licenciaTrial: usuario.licenciaTrial,
+        diasRestantesTrial: diasRestantes,
+        expiraTrial: usuario.fechaExpiracionTrial,
+        expiraLicencia: usuario.fechaExpiracionLicencia,
+        limiteEmpresas: usuario.limiteEmpresas
+      }
     });
     
   } catch (error) {
-    console.error('Error en login:', error);
-    res.status(500).json({ error: 'Error en el servidor' });
+    console.error('❌ Error en login:', error);
+    res.status(500).json({ 
+      error: 'Error en el servidor',
+      codigo: 'ERROR_SERVIDOR'
+    });
   }
 });
 
