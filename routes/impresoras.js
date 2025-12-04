@@ -1032,44 +1032,4 @@ const verificarLicencia = async (req, res, next) => {
   }
 };
 
-// ============================================
-// APLICAR MIDDLEWARE A TODAS LAS RUTAS
-// ============================================
-const rutasProtegidas = [
-  '/empresas/:empresaId/impresoras',
-  '/impresoras/:id/registrar-corte',
-  '/impresoras/:id/generar-pdf',
-  '/api/metrics/impresoras',
-  '/impresoras/:id',
-  '/impresoras/:empresaId/upload',
-  '/cortes-mensuales',
-  '/cortes-mensuales/:empresaId',
-  '/carpetas'
-  // Agrega aquí otras rutas que necesiten protección
-];
-
-// Aplicar middleware solo a rutas específicas
-router.stack.forEach(layer => {
-  if (layer.route) {
-    const ruta = layer.route.path;
-    const metodo = layer.route.stack[0].method;
-    
-    // Verificar si esta ruta necesita protección
-    const necesitaProteccion = rutasProtegidas.some(rutaProtegida => {
-      // Coincidencia simple de patrones
-      return ruta.includes(rutaProtegida.split(':')[0]);
-    });
-    
-    if (necesitaProteccion) {
-      console.log(`🔒 Protegiendo ruta: ${metodo.toUpperCase()} ${ruta}`);
-      // Agregar middleware al inicio de los handlers
-      layer.route.stack.unshift({ handle: verificarLicencia });
-    }
-  }
-});
-
-console.log('✅ Middleware de licencia aplicado a rutas protegidas');
-// ============================================
-
-
 module.exports = router;
