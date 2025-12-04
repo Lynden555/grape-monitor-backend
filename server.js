@@ -19,8 +19,25 @@ const usuarioSchema = new mongoose.Schema({
   activo: { type: Boolean, default: false },
   ciudad: String,
   empresaId: String,
-  fechaRegistro: { type: Date, default: Date.now }
+  fechaRegistro: { type: Date, default: Date.now },
+  
+  // CAMPOS NUEVOS PARA LICENCIA:
+  plan: { 
+    type: String, 
+    enum: ['trial', 'starter', 'premium'],
+    default: 'trial'
+  },
+  licenciaTrial: { type: Boolean, default: true },
+  fechaExpiracionTrial: Date,
+  fechaExpiracionLicencia: Date,
+  limiteEmpresas: { type: Number, default: 1 },
+  
+  // Para Stripe (después)
+  stripeCustomerId: String,
+  stripeSubscriptionId: String,
+  ultimoPago: Date
 });
+
 const Usuario = mongoose.model('Usuario', usuarioSchema);
 
 // Middlewares básicos
@@ -81,13 +98,27 @@ app.post('/login', async (req, res) => {
 });
 
 // Endpoint de Registro
+// Endpoint de Registro CON TRIAL
 app.post('/api/registro', async (req, res) => {
   try {
-    const { email, password, ciudad, empresaId } = req.body;
+    const { 
+      email, 
+      password, 
+      ciudad, 
+      empresaId,
+      plan = 'trial',           // Nuevo: 'trial', 'starter', 'premium'
+      diasTrial = 7             // Nuevo: 7 días para trial, 3 para pago
+    } = req.body;
 
     // Validar datos requeridos
     if (!email || !password || !ciudad || !empresaId) {
       return res.status(400).json({ error: 'Todos los campos son obligatorios' });
+    }
+
+    // Validar plan
+    const planesValidos = ['trial', 'starter', 'premium'];
+    if (!planesValidos.includes(plan)) {
+      return res.status(400).json({ error: 'Plan no válido' });
     }
 
     // Verificar si el email ya existe
@@ -104,36 +135,159 @@ app.post('/api/registro', async (req, res) => {
     // Encriptar contraseña
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Crear nuevo usuario (licencia inactiva por defecto)
+    // CALCULAR FECHAS SEGÚN PLAN
+    const fechaActual = new Date();
+    const fechaExpiracionTrial = new Date();
+    fechaExpiracionTrial.setDate(fechaExpiracionTrial.getDate() + diasTrial);
+
+    // DETERMINAR LÍMITE DE EMPRESAS
+    let limiteEmpresas = 1; // Default trial
+    if (plan === 'starter') limiteEmpresas = 10;
+    if (plan === 'premium') limiteEmpresas = 30;
+
+    // DETERMINAR SI ESTÁ ACTIVO
+    // Trial: activo true (acceso inmediato)
+    // Starter/Premium: activo false hasta que paguen
+    const activo = (plan === 'trial') ? true : false;
+
+    // Crear nuevo usuario CON CAMPOS DE LICENCIA
     const nuevoUsuario = new Usuario({
       email,
       password: hashedPassword,
       ciudad,
       empresaId,
-      activo: false, // Se activa manualmente después del pago
-      fechaRegistro: new Date()
+      plan,                    // 'trial', 'starter', 'premium'
+      activo,                  // true para trial, false para pago
+      licenciaTrial: true,     // Siempre true al registrar
+      fechaRegistro: fechaActual,
+      fechaExpiracionTrial: fechaExpiracionTrial,
+      fechaExpiracionLicencia: null, // Se llena cuando pague
+      limiteEmpresas: limiteEmpresas,
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      ultimoPago: null
     });
 
     await nuevoUsuario.save();
 
-    // 📢 Notificación en consola
-    console.log('📢 NUEVO REGISTRO:', {
+    // 📢 Notificación en consola DETALLADA
+    console.log('🎯 NUEVO REGISTRO CON LICENCIA:', {
       email,
       ciudad,
       empresaId,
-      activo: false
+      plan,
+      activo,
+      diasTrial,
+      limiteEmpresas,
+      expiraTrial: fechaExpiracionTrial.toISOString().split('T')[0]
     });
 
-    // Respuesta exitosa
+    // Respuesta exitosa CON INFO DE LICENCIA
     res.json({
       success: true,
-      message: 'Registro completado. Te contactaremos para activar tu licencia.',
-      empresaId: empresaId
+      message: plan === 'trial' 
+        ? `¡Registro exitoso! Tienes ${diasTrial} días de trial gratis.`
+        : `¡Registro exitoso! Tienes ${diasTrial} días de trial. Procede al pago para activar tu licencia completa.`,
+      empresaId: empresaId,
+      plan: plan,
+      activo: activo,
+      diasTrial: diasTrial,
+      expiraTrial: fechaExpiracionTrial,
+      limiteEmpresas: limiteEmpresas
     });
 
   } catch (error) {
     console.error('❌ Error en registro:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+
+// Endpoint para verificar licencia (usado por frontend en login)
+app.get('/api/verificar-licencia/:empresaId', async (req, res) => {
+  try {
+    const { empresaId } = req.params;
+
+    const usuario = await Usuario.findOne({ empresaId });
+    
+    if (!usuario) {
+      return res.status(404).json({ 
+        error: 'Empresa no encontrada',
+        tieneLicencia: false
+      });
+    }
+
+    const ahora = new Date();
+    
+    // VERIFICAR LÓGICA DE LICENCIA:
+    let puedeAcceder = false;
+    let motivo = '';
+    let datosLicencia = {};
+
+    // 1. Si tiene licencia activa (pagó)
+    if (usuario.activo && usuario.fechaExpiracionLicencia > ahora) {
+      puedeAcceder = true;
+      motivo = 'Licencia activa (pago)';
+      datosLicencia = {
+        tipo: 'pago',
+        plan: usuario.plan,
+        expira: usuario.fechaExpiracionLicencia,
+        limiteEmpresas: usuario.limiteEmpresas
+      };
+    }
+    // 2. Si está en trial vigente
+    else if (usuario.licenciaTrial && usuario.fechaExpiracionTrial > ahora) {
+      puedeAcceder = true;
+      motivo = 'Trial vigente';
+      datosLicencia = {
+        tipo: 'trial',
+        plan: usuario.plan,
+        expira: usuario.fechaExpiracionTrial,
+        diasRestantes: Math.ceil((usuario.fechaExpiracionTrial - ahora) / (1000 * 60 * 60 * 24)),
+        limiteEmpresas: usuario.limiteEmpresas
+      };
+    }
+    // 3. Si el trial expiró
+    else if (usuario.licenciaTrial && usuario.fechaExpiracionTrial <= ahora) {
+      puedeAcceder = false;
+      motivo = 'Trial expirado';
+      datosLicencia = {
+        tipo: 'trial_expirado',
+        plan: usuario.plan,
+        expiroEl: usuario.fechaExpiracionTrial
+      };
+    }
+    // 4. Si no tiene licencia activa (starter/premium sin pagar)
+    else {
+      puedeAcceder = false;
+      motivo = 'Licencia inactiva (pendiente de pago)';
+      datosLicencia = {
+        tipo: 'pendiente_pago',
+        plan: usuario.plan,
+        necesitaPago: true
+      };
+    }
+
+    res.json({
+      puedeAcceder,
+      motivo,
+      datosLicencia,
+      usuario: {
+        email: usuario.email,
+        empresaId: usuario.empresaId,
+        ciudad: usuario.ciudad,
+        plan: usuario.plan,
+        activo: usuario.activo,
+        licenciaTrial: usuario.licenciaTrial
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error verificando licencia:', error);
+    res.status(500).json({ 
+      error: 'Error interno del servidor',
+      puedeAcceder: false
+    });
   }
 });
 
