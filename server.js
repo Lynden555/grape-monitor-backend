@@ -40,6 +40,7 @@ const usuarioSchema = new mongoose.Schema({
 
 const Usuario = mongoose.model('Usuario', usuarioSchema);
 
+
 // Middlewares básicos
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));

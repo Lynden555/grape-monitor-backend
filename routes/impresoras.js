@@ -951,4 +951,125 @@ router.get('/api/online-policy', (_req, res) => {
   });
 });
 
+// ============================================
+// MIDDLEWARE DE LICENCIA
+// ============================================
+const verificarLicencia = async (req, res, next) => {
+  try {
+    // IMPORTAR USUARIO (ajusta la ruta si es diferente)
+    const Usuario = require('../models/Usuario'); 
+    
+    // Obtener empresaId de la ruta o query
+    const empresaId = req.params.empresaId || req.query.empresaId || req.body.empresaId;
+    const ciudad = req.query.ciudad || req.body.ciudad || req.headers['x-ciudad'];
+    
+    console.log('🔍 Verificando licencia:', { empresaId, ciudad });
+    
+    if (!empresaId || !ciudad) {
+      return res.status(401).json({ 
+        error: 'Credenciales de licencia no proporcionadas',
+        codigo: 'SIN_CREDENCIALES'
+      });
+    }
+    
+    const usuario = await Usuario.findOne({ empresaId, ciudad });
+    
+    if (!usuario) {
+      return res.status(401).json({ 
+        error: 'Usuario no encontrado',
+        codigo: 'USUARIO_NO_ENCONTRADO'
+      });
+    }
+    
+    const ahora = new Date();
+    
+    // Verificar si puede acceder
+    let puedeAcceder = false;
+    
+    // 1. Licencia activa (pagada y vigente)
+    if (usuario.activo && usuario.fechaExpiracionLicencia > ahora) {
+      puedeAcceder = true;
+    } 
+    // 2. Trial vigente
+    else if (usuario.licenciaTrial && usuario.fechaExpiracionTrial > ahora) {
+      puedeAcceder = true;
+    }
+    // 3. Trial expirado
+    else if (usuario.licenciaTrial && usuario.fechaExpiracionTrial <= ahora) {
+      console.log('❌ Trial expirado:', usuario.email);
+      return res.status(403).json({ 
+        error: 'Tu trial ha expirado. Actualiza tu plan para continuar.',
+        codigo: 'TRIAL_EXPIRADO',
+        necesitaActualizar: true
+      });
+    }
+    // 4. Starter/Premium sin pagar
+    else if (usuario.plan !== 'trial' && !usuario.activo) {
+      console.log('❌ Licencia pendiente de pago:', usuario.email);
+      return res.status(403).json({ 
+        error: 'Licencia pendiente de pago. Completa el pago para activar tu cuenta.',
+        codigo: 'PENDIENTE_PAGO',
+        necesitaActualizar: true
+      });
+    }
+    
+    if (!puedeAcceder) {
+      return res.status(403).json({ 
+        error: 'Licencia no válida o expirada',
+        codigo: 'LICENCIA_INVALIDA',
+        necesitaActualizar: true
+      });
+    }
+    
+    // Guardar usuario en request para uso posterior
+    req.usuario = usuario;
+    console.log('✅ Licencia válida:', usuario.email, 'Plan:', usuario.plan);
+    next();
+    
+  } catch (error) {
+    console.error('❌ Error verificando licencia:', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+};
+
+// ============================================
+// APLICAR MIDDLEWARE A TODAS LAS RUTAS
+// ============================================
+const rutasProtegidas = [
+  '/empresas/:empresaId/impresoras',
+  '/impresoras/:id/registrar-corte',
+  '/impresoras/:id/generar-pdf',
+  '/api/metrics/impresoras',
+  '/impresoras/:id',
+  '/impresoras/:empresaId/upload',
+  '/cortes-mensuales',
+  '/cortes-mensuales/:empresaId',
+  '/carpetas'
+  // Agrega aquí otras rutas que necesiten protección
+];
+
+// Aplicar middleware solo a rutas específicas
+router.stack.forEach(layer => {
+  if (layer.route) {
+    const ruta = layer.route.path;
+    const metodo = layer.route.stack[0].method;
+    
+    // Verificar si esta ruta necesita protección
+    const necesitaProteccion = rutasProtegidas.some(rutaProtegida => {
+      // Coincidencia simple de patrones
+      return ruta.includes(rutaProtegida.split(':')[0]);
+    });
+    
+    if (necesitaProteccion) {
+      console.log(`🔒 Protegiendo ruta: ${metodo.toUpperCase()} ${ruta}`);
+      // Agregar middleware al inicio de los handlers
+      layer.route.stack.unshift({ handle: verificarLicencia });
+    }
+  }
+});
+
+console.log('✅ Middleware de licencia aplicado a rutas protegidas');
+// ============================================
+
+
 module.exports = router;
