@@ -360,6 +360,80 @@ router.put('/api/empresas/:id', async (req, res) => {
   }
 });
 
+
+// ✏️ PUT /api/impresoras/:id - Renombrar impresora
+router.put('/api/impresoras/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { printerName } = req.body;
+
+    if (!printerName || !printerName.trim()) {
+      return res.status(400).json({
+        ok: false,
+        error: 'El nombre de la impresora no puede estar vacío'
+      });
+    }
+
+    const impresora = await Impresora.findByIdAndUpdate(
+      id,
+      { printerName: printerName.trim() },
+      { new: true }
+    );
+
+    if (!impresora) {
+      return res.status(404).json({
+        ok: false,
+        error: 'Impresora no encontrada'
+      });
+    }
+
+    res.json({
+      ok: true,
+      data: impresora,
+      message: `Impresora renombrada a "${printerName.trim()}"`
+    });
+
+  } catch (error) {
+    console.error('❌ Error renombrando impresora:', error);
+    res.status(500).json({
+      ok: false,
+      error: 'Error interno del servidor'
+    });
+  }
+});
+
+// 🗑️ DELETE /api/impresoras/:id - Eliminar impresora
+router.delete('/api/impresoras/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const impresora = await Impresora.findByIdAndDelete(id);
+    if (!impresora) {
+      return res.status(404).json({
+        ok: false,
+        error: 'Impresora no encontrada'
+      });
+    }
+
+    // Limpiar datos asociados
+    await ImpresoraLatest.deleteMany({ printerId: id });
+    await CortesMensuales.deleteMany({ printerId: id });
+
+    res.json({
+      ok: true,
+      message: `Impresora "${impresora.printerName || impresora.host}" eliminada correctamente`
+    });
+
+  } catch (err) {
+    console.error('❌ DELETE /api/impresoras/:id', err);
+    res.status(500).json({
+      ok: false,
+      error: 'Error eliminando impresora'
+    });
+  }
+});
+
+
 // 🗑️ DELETE /api/empresas/:id - Eliminar empresa (YA EXISTE PERO MEJORADO)
 router.delete('/api/empresas/:id', async (req, res) => {
   try {
