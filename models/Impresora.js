@@ -14,6 +14,7 @@ const impresoraSchema = new mongoose.Schema({
   sysDescr: { type: String, default: null },
   model: { type: String, default: null },
   printerName: { type: String, default: null },
+  customName: { type: String, default: null },
   createdAt: { type: Date, default: Date.now }
 }, { strict: true });
 

@@ -7,7 +7,11 @@ const CortesMensuales = require('../models/CortesMensuales');
 
 const { computeDerivedOnline, ONLINE_STALE_MS } = require('../helpers/onlineStatus');
 
-// 🖨️ GET /api/empresas/:empresaId/impresoras - Listar impresoras de una empresa
+// 🆕 Helper: nombre final que ve el usuario (prioridad: custom > snmp > fallback)
+const resolveDisplayName = (i) =>
+  i.customName || i.printerName || i.sysName || i.host || 'Impresora';
+
+// 🖨️ GET /api/empresas/:empresaId/impresoras - Listar impresoras
 router.get('/empresas/:empresaId/impresoras', async (req, res) => {
   try {
     const { empresaId } = req.params;
@@ -29,6 +33,7 @@ router.get('/empresas/:empresaId/impresoras', async (req, res) => {
 
       return {
         ...i,
+        displayName: resolveDisplayName(i),  // 🆕 nombre final ya resuelto
         online: derivedOnline,
         latest: latestWithDerived
       };
@@ -41,11 +46,11 @@ router.get('/empresas/:empresaId/impresoras', async (req, res) => {
   }
 });
 
-// ✏️ PUT /api/impresoras/:id - Renombrar impresora
+// ✏️ PUT /api/impresoras/:id - Renombrar impresora (guarda en customName)
 router.put('/impresoras/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { printerName } = req.body;
+    const { printerName } = req.body; // el front sigue mandando "printerName"
 
     if (!printerName || !printerName.trim()) {
       return res.status(400).json({
@@ -54,9 +59,10 @@ router.put('/impresoras/:id', async (req, res) => {
       });
     }
 
+    // ⚡ Guardamos en customName, NO en printerName (printerName lo controla SNMP)
     const impresora = await Impresora.findByIdAndUpdate(
       id,
-      { printerName: printerName.trim() },
+      { customName: printerName.trim() },
       { new: true }
     );
 
@@ -69,7 +75,10 @@ router.put('/impresoras/:id', async (req, res) => {
 
     res.json({
       ok: true,
-      data: impresora,
+      data: {
+        ...impresora.toObject(),
+        displayName: resolveDisplayName(impresora)
+      },
       message: `Impresora renombrada a "${printerName.trim()}"`
     });
 
@@ -95,7 +104,6 @@ router.delete('/impresoras/:id', async (req, res) => {
       });
     }
 
-    // Limpiar datos asociados
     await Promise.all([
       ImpresoraLatest.deleteMany({ printerId: id }),
       CortesMensuales.deleteMany({ printerId: id }),
@@ -103,7 +111,7 @@ router.delete('/impresoras/:id', async (req, res) => {
 
     res.json({
       ok: true,
-      message: `Impresora "${impresora.printerName || impresora.host}" eliminada correctamente`
+      message: `Impresora "${resolveDisplayName(impresora)}" eliminada correctamente`
     });
   } catch (err) {
     console.error('❌ DELETE /api/impresoras/:id', err);
@@ -111,7 +119,7 @@ router.delete('/impresoras/:id', async (req, res) => {
   }
 });
 
-// ℹ️ GET /api/online-policy - Política de online
+// ℹ️ GET /api/online-policy
 router.get('/online-policy', (_req, res) => {
   res.json({
     ok: true,
