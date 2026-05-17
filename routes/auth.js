@@ -3,6 +3,7 @@ const router = express.Router();
 const bcrypt = require('bcrypt');
 
 const Usuario = require('../models/Usuario');
+const { puedeActivarUnaMas, contarImpresorasTotalesDeUsuario, obtenerLimitePorPlan } = require('../helpers/limitesPlan');
 
 // 🔐 POST /login - Login con validación de licencia
 router.post('/login', async (req, res) => {
@@ -39,9 +40,15 @@ router.post('/login', async (req, res) => {
     else if (usuario.licenciaTrial && usuario.fechaExpiracionTrial > ahora) {
       puedeAcceder = true;
     }
-    // CASO C: Trial expirado
-    else if (usuario.licenciaTrial && usuario.fechaExpiracionTrial <= ahora) {
-      mensajeError = `Tu trial expiró el ${usuario.fechaExpiracionTrial.toLocaleDateString()}.`;
+// CASO C: Trial expirado (por fecha O por flag del cron)
+    else if (
+      usuario.plan === 'trial_expirado' ||
+      (usuario.licenciaTrial && usuario.fechaExpiracionTrial <= ahora)
+    ) {
+      const fechaExp = usuario.fechaExpiracionTrial
+        ? usuario.fechaExpiracionTrial.toLocaleDateString()
+        : 'recientemente';
+      mensajeError = `Tu trial expiró el ${fechaExp}. Actualiza tu plan para continuar.`;
       codigoError = 'TRIAL_EXPIRADO';
     }
     // CASO D: Starter/Premium sin pagar
@@ -90,7 +97,7 @@ router.post('/login', async (req, res) => {
         diasRestantesTrial: diasRestantes,
         expiraTrial: usuario.fechaExpiracionTrial,
         expiraLicencia: usuario.fechaExpiracionLicencia,
-        limiteEmpresas: usuario.limiteEmpresas
+        limiteImpresoras: usuario.limiteImpresoras
       }
     });
 
@@ -119,7 +126,7 @@ router.post('/api/registro', async (req, res) => {
       return res.status(400).json({ error: 'Todos los campos son obligatorios' });
     }
 
-    const planesValidos = ['trial', 'starter', 'premium'];
+   const planesValidos = ['trial', 'starter', 'pro', 'enterprise', 'custom'];
     if (!planesValidos.includes(plan)) {
       return res.status(400).json({ error: 'Plan no válido' });
     }
@@ -139,9 +146,7 @@ router.post('/api/registro', async (req, res) => {
     const fechaExpiracionTrial = new Date();
     fechaExpiracionTrial.setDate(fechaExpiracionTrial.getDate() + diasTrial);
 
-    let limiteEmpresas = 1;
-    if (plan === 'starter') limiteEmpresas = 10;
-    if (plan === 'premium') limiteEmpresas = 30;
+const limiteImpresoras = obtenerLimitePorPlan(plan);
 
     const activo = (plan === 'trial');
 
@@ -156,7 +161,7 @@ router.post('/api/registro', async (req, res) => {
       fechaRegistro: fechaActual,
       fechaExpiracionTrial,
       fechaExpiracionLicencia: null,
-      limiteEmpresas,
+    limiteImpresoras,
       stripeCustomerId: null,
       stripeSubscriptionId: null,
       ultimoPago: null
@@ -165,7 +170,7 @@ router.post('/api/registro', async (req, res) => {
     await nuevoUsuario.save();
 
     console.log('🎯 NUEVO REGISTRO CON LICENCIA:', {
-      email, ciudad, empresaId, plan, activo, diasTrial, limiteEmpresas,
+      email, ciudad, empresaId, plan, activo, diasTrial, limiteImpresoras,
       expiraTrial: fechaExpiracionTrial.toISOString().split('T')[0]
     });
 
@@ -178,8 +183,9 @@ router.post('/api/registro', async (req, res) => {
       plan,
       activo,
       diasTrial,
+diasTrial,
       expiraTrial: fechaExpiracionTrial,
-      limiteEmpresas
+      limiteImpresoras
     });
 
   } catch (error) {
@@ -210,10 +216,10 @@ router.get('/api/verificar-licencia/:empresaId', async (req, res) => {
       puedeAcceder = true;
       motivo = 'Licencia activa (pago)';
       datosLicencia = {
-        tipo: 'pago',
+tipo: 'pago',
         plan: usuario.plan,
         expira: usuario.fechaExpiracionLicencia,
-        limiteEmpresas: usuario.limiteEmpresas
+        limiteImpresoras: usuario.limiteImpresoras
       };
     } else if (usuario.licenciaTrial && usuario.fechaExpiracionTrial > ahora) {
       puedeAcceder = true;
@@ -221,9 +227,9 @@ router.get('/api/verificar-licencia/:empresaId', async (req, res) => {
       datosLicencia = {
         tipo: 'trial',
         plan: usuario.plan,
-        expira: usuario.fechaExpiracionTrial,
+expira: usuario.fechaExpiracionTrial,
         diasRestantes: Math.ceil((usuario.fechaExpiracionTrial - ahora) / (1000 * 60 * 60 * 24)),
-        limiteEmpresas: usuario.limiteEmpresas
+        limiteImpresoras: usuario.limiteImpresoras
       };
     } else if (usuario.licenciaTrial && usuario.fechaExpiracionTrial <= ahora) {
       motivo = 'Trial expirado';
@@ -328,6 +334,41 @@ router.get('/api/usuarios', async (_req, res) => {
   } catch (error) {
     console.error('❌ Error obteniendo usuarios:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
+// 📊 GET /api/usuarios/:email/plan-info - Info de plan para el front (barra de uso, modal upgrade)
+router.get('/api/usuarios/:email/plan-info', async (req, res) => {
+  try {
+    const usuario = await Usuario.findOne({ email: req.params.email }).lean();
+    if (!usuario) {
+      return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
+    }
+
+    const check = await puedeActivarUnaMas(usuario._id);
+    const totales = await contarImpresorasTotalesDeUsuario(usuario._id);
+    const ahora = new Date();
+    const diasRestantesTrial = usuario.fechaExpiracionTrial
+      ? Math.max(0, Math.ceil((new Date(usuario.fechaExpiracionTrial) - ahora) / (1000 * 60 * 60 * 24)))
+      : null;
+
+    res.json({
+      ok: true,
+      plan: usuario.plan,
+      limiteImpresoras: check.limite,
+      impresorasActivas: check.usadas,
+      impresorasInactivas: totales - check.usadas,
+      impresorasTotales: totales,
+      puedeAgregarMas: check.puede,
+      diasRestantesTrial,
+      fechaExpiracionTrial: usuario.fechaExpiracionTrial,
+      fechaExpiracionLicencia: usuario.fechaExpiracionLicencia,
+      trialExpirado: usuario.plan === 'trial_expirado',
+      activo: usuario.activo
+    });
+  } catch (err) {
+    console.error('❌ plan-info:', err);
+    res.status(500).json({ ok: false, error: 'Error obteniendo info del plan' });
   }
 });
 

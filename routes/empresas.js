@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const Empresa = require('../models/Empresa');
+const Usuario = require('../models/Usuario');
 const Impresora = require('../models/Impresora');
 const ImpresoraLatest = require('../models/ImpresoraLatest');
 const CortesMensuales = require('../models/CortesMensuales');
@@ -29,12 +30,22 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ ok: false, error: 'La empresa ya existe en este scope' });
     }
 
+// 🆕 Resolver userId desde el empresaId String (mismo patrón que la migración)
+    const usuarioDueno = await Usuario.findOne({ empresaId });
+    if (!usuarioDueno) {
+      return res.status(404).json({
+        ok: false,
+        error: 'No se encontró un usuario asociado a este empresaId'
+      });
+    }
+
     const apiKey = generarApiKey();
     const nueva = new Empresa({
       nombre: nombre.trim(),
       apiKey,
       empresaId,
-      ciudad
+      ciudad,
+      userId: usuarioDueno._id
     });
     await nueva.save();
 

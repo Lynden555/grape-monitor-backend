@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 
 const connectDB = require('./config/database');
+const { iniciarCronTrialExpirado } = require('./helpers/cronTrialExpirado');
 
 // Routers
 const authRoutes = require('./routes/auth');
@@ -104,4 +105,7 @@ app.listen(PORT, () => {
   console.log(`📊 Base de datos: monitoreo_impresoras`);
   console.log(`📍 URL: http://localhost:${PORT}`);
   console.log(`🔗 MongoDB: Cluster0`);
+  
+  // 🆕 Iniciar cron de trial expirado
+  iniciarCronTrialExpirado();
 });

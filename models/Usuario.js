@@ -11,13 +11,15 @@ const usuarioSchema = new mongoose.Schema({
   // Campos de licencia
   plan: {
     type: String,
-    enum: ['trial', 'starter', 'premium'],
+    enum: ['trial', 'trial_expirado', 'starter', 'pro', 'enterprise', 'custom'],
     default: 'trial'
   },
   licenciaTrial: { type: Boolean, default: true },
   fechaExpiracionTrial: Date,
   fechaExpiracionLicencia: Date,
-  limiteEmpresas: { type: Number, default: 1 },
+
+  // 🆕 Sistema de límites por impresoras (no por empresas)
+  limiteImpresoras: { type: Number, default: 5 },
 
   // Para Stripe (después)
   stripeCustomerId: String,

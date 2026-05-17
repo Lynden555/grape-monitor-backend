@@ -15,6 +15,8 @@ const impresoraSchema = new mongoose.Schema({
   model: { type: String, default: null },
   printerName: { type: String, default: null },
   customName: { type: String, default: null },
+  // 🆕 Flag para impresoras que exceden el límite del plan
+  monitoreoActivo: { type: Boolean, default: true, index: true },
   createdAt: { type: Date, default: Date.now }
 }, { strict: true });
 
