@@ -6,6 +6,13 @@ const usuarioSchema = new mongoose.Schema({
   activo: { type: Boolean, default: false },
   ciudad: String,
   empresaId: String,
+  pais: { 
+    type: String, 
+    uppercase: true, 
+    minlength: 2, 
+    maxlength: 2, 
+    default: 'MX' 
+  },
   fechaRegistro: { type: Date, default: Date.now },
 
   // Campos de licencia

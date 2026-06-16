@@ -90,6 +90,7 @@ router.post('/login', async (req, res) => {
       empresaId: usuario.empresaId,
       email: usuario.email,
       ciudad: usuario.ciudad,
+      pais: usuario.pais || 'MX', 
       licencia: {
         plan: usuario.plan,
         activo: usuario.activo,
@@ -113,11 +114,12 @@ router.post('/login', async (req, res) => {
 // 📝 POST /api/registro - Registro con trial
 router.post('/api/registro', async (req, res) => {
   try {
-    const {
+const {
       email,
       password,
       ciudad,
       empresaId,
+      pais = 'MX',           
       plan = 'trial',
       diasTrial = 7
     } = req.body;
@@ -150,18 +152,19 @@ const limiteImpresoras = obtenerLimitePorPlan(plan);
 
     const activo = (plan === 'trial');
 
-    const nuevoUsuario = new Usuario({
+const nuevoUsuario = new Usuario({
       email,
       password: hashedPassword,
       ciudad,
       empresaId,
+      pais,                  
       plan,
       activo,
       licenciaTrial: true,
       fechaRegistro: fechaActual,
       fechaExpiracionTrial,
       fechaExpiracionLicencia: null,
-    limiteImpresoras,
+      limiteImpresoras,
       stripeCustomerId: null,
       stripeSubscriptionId: null,
       ultimoPago: null
