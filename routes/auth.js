@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 
 const Usuario = require('../models/Usuario');
 const { puedeActivarUnaMas, contarImpresorasTotalesDeUsuario, obtenerLimitePorPlan } = require('../helpers/limitesPlan');
@@ -83,6 +84,36 @@ router.post('/login', async (req, res) => {
     if (usuario.licenciaTrial && usuario.fechaExpiracionTrial > ahora) {
       diasRestantes = Math.ceil((usuario.fechaExpiracionTrial - ahora) / (1000 * 60 * 60 * 24));
     }
+
+    // 🆕 Generar JWT para app móvil / panel web (30 días de vigencia)
+    const token = jwt.sign(
+      {
+        email: usuario.email,
+        empresaId: usuario.empresaId,
+        ciudad: usuario.ciudad
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+
+    res.json({
+      success: true,
+      message: 'Login exitoso',
+      token, // 🆕 Token JWT
+      empresaId: usuario.empresaId,
+      email: usuario.email,
+      ciudad: usuario.ciudad,
+      pais: usuario.pais || 'MX', 
+      licencia: {
+        plan: usuario.plan,
+        activo: usuario.activo,
+        licenciaTrial: usuario.licenciaTrial,
+        diasRestantesTrial: diasRestantes,
+        expiraTrial: usuario.fechaExpiracionTrial,
+        expiraLicencia: usuario.fechaExpiracionLicencia,
+        limiteImpresoras: usuario.limiteImpresoras
+      }
+    });
 
     res.json({
       success: true,
