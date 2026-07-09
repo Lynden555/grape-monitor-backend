@@ -53,12 +53,7 @@ app.use('/api', impresorasRoutes);          // /api/empresas/:empresaId/impresor
 app.use('/api', carpetasRoutes);            // /api/carpetas*, /api/asignaciones*
 app.use('/api', metricsRoutes);             // /api/metrics/impresoras
 app.use('/api', reportesRoutes);            // /api/impresoras/:id/registrar-corte, /api/impresoras/:id/generar-pdf
-// 🧪 TEST TEMPORAL (BORRAR después)
-app.post('/api/test-push', async (req, res) => {
-  const { enviarPush } = require('./helpers/fcmService');
-  const result = await enviarPush('tokenfalso123', 'Test', 'Test');
-  res.json(result);
-});
+
 // ============================================================
 // RUTA DE PRUEBA
 // ============================================================
