@@ -14,6 +14,7 @@ const carpetasRoutes = require('./routes/carpetas');
 const metricsRoutes = require('./routes/metrics');
 const reportesRoutes = require('./routes/reportes');
 const devicesRoutes = require('./routes/devices');
+const alertasRoutes = require('./routes/alertas');
 
 const app = express();
 const PORT = 8080; // Puerto fijo para Railway
@@ -55,6 +56,7 @@ app.use('/api', carpetasRoutes);            // /api/carpetas*, /api/asignaciones
 app.use('/api', metricsRoutes);             // /api/metrics/impresoras
 app.use('/api', reportesRoutes);            // /api/impresoras/:id/registrar-corte, /api/impresoras/:id/generar-pdf
 app.use('/api', devicesRoutes);              // /api/device-token
+app.use('/api', alertasRoutes);              // /api/alertas/config/:printerId, /api/alertas/historial
 
 // ============================================================
 // RUTA DE PRUEBA

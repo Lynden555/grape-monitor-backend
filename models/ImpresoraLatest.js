@@ -20,6 +20,18 @@ const impresoraLatestSchema = new mongoose.Schema({
     level: Number,
     max: Number
   }],
+  // 🆕 Tracking de suministros para detectar cruces de umbral y resets de cartucho
+  suppliesTracking: [{
+    name: String,
+    ultimoNivel: Number,
+    cicloActual: { type: Number, default: 1 },
+    ultimoUmbralDisparado: {
+      type: String,
+      enum: ['umbral', 'mitad', 'critico', null],
+      default: null
+    },
+    updatedAt: { type: Date, default: Date.now }
+  }],
   lastSeenAt: { type: Date, default: null },
   lowToner: { type: Boolean, default: false },
   online: { type: Boolean, default: true }
