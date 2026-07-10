@@ -5,6 +5,7 @@ const Impresora = require('../models/Impresora');
 const ImpresoraLatest = require('../models/ImpresoraLatest');
 const Usuario = require('../models/Usuario');
 const { puedeActivarUnaMas } = require('../helpers/limitesPlan');
+const { procesarPosibleAlerta } = require('../helpers/alertaService');
 
 // 📊 POST /api/metrics/impresoras - Ingesta de métricas desde el agente SNMP
 router.post('/metrics/impresoras', async (req, res) => {
@@ -135,6 +136,11 @@ router.post('/metrics/impresoras', async (req, res) => {
       },
       { new: true, upsert: true }
     );
+
+    // 🆕 Procesar alertas (no bloquea la respuesta del agente si falla)
+    procesarPosibleAlerta(impresora, supplies).catch(err => {
+      console.error('❌ AlertaService (background):', err);
+    });
 
     res.json({
       ok: true,
