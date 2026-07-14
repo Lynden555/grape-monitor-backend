@@ -147,14 +147,20 @@ async function procesarPosibleAlerta(impresora, supplies) {
     );
 
     // 4. Disparar las alertas
+    const Empresa = require('../models/Empresa');
+    const clienteDoc = await Empresa.findById(impresora.empresaId).select('nombre').lean();
+    const nombreCliente = clienteDoc?.nombre || null;
+
     for (const d of disparos) {
       const nombreImpresora = impresora.customName || impresora.printerName || impresora.host;
       const titulos = {
-        umbral: `⚠️ Tóner bajo en ${nombreImpresora}`,
-        mitad: `🟠 Tóner muy bajo en ${nombreImpresora}`,
-        critico: `🔴 CRÍTICO: Tóner casi vacío en ${nombreImpresora}`
+        umbral: `Tóner bajo en ${nombreImpresora} ⚠️ `,
+        mitad: `Tóner muy bajo en ${nombreImpresora} 🟠`,
+        critico: `Crítico: tóner casi vacío en ${nombreImpresora} 🔴`
       };
-      const cuerpo = `${d.supplyName}: ${d.nivel}%`;
+      const cuerpo = nombreCliente
+        ? `${nombreCliente} · ${d.supplyName}: ${d.nivel}%`
+        : `${d.supplyName}: ${d.nivel}%`;
 
       const destinatariosEnviados = await notificarDevices(
         impresora.ciudad,

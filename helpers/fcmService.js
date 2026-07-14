@@ -22,10 +22,25 @@ async function enviarPush(token, titulo, cuerpo, data = {}) {
     Object.keys(data).forEach(k => { stringData[k] = String(data[k]); });
 
     const messageId = await getMessaging().send({
-      token,
-      notification: { title: titulo, body: cuerpo },
-      data: stringData
-    });
+  token,
+  notification: { title: titulo, body: cuerpo },
+  data: stringData,
+  apns: {
+    payload: {
+      aps: {
+        sound: 'default',
+        badge: 1
+      }
+    }
+  },
+  android: {
+    notification: {
+      sound: 'default',
+      priority: 'high',
+      channelId: 'grape_alerts'
+    }
+  }
+});
 
     return { ok: true, messageId };
   } catch (err) {
