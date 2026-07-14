@@ -8,6 +8,7 @@ const CortesMensuales = require('../models/CortesMensuales');
 const { computeDerivedOnline, ONLINE_STALE_MS } = require('../helpers/onlineStatus');
 const Empresa = require('../models/Empresa');
 const authMiddleware = require('../middleware/authMiddleware');
+const { Carpeta, AsignacionCarpeta } = require('../models/Carpeta');
 
 // 🆕 Helper: nombre final que ve el usuario (prioridad: custom > snmp > fallback)
 const resolveDisplayName = (i) =>
@@ -138,55 +139,13 @@ router.get('/online-policy', (_req, res) => {
  * Helper interno: resuelve la Empresa del usuario logueado.
  * Retorna la Empresa o null si no existe.
  */
-async function resolveEmpresaDelUsuario(user) {
-  return Empresa.findOne({
+async function empresasDelUsuario(user) {
+  return Empresa.find({
     empresaId: user.empresaId,
     ciudad: user.ciudad
   }).lean();
 }
 
-// 📱 GET /api/impresoras/mias - Lista impresoras del usuario logueado
-router.get('/impresoras/mias', authMiddleware, async (req, res) => {
-  try {
-    const empresa = await resolveEmpresaDelUsuario(req.user);
-    if (!empresa) {
-      return res.json({ ok: true, data: [] });
-    }
-
-    const impresoras = await Impresora.find({
-      empresaId: empresa._id,
-      ciudad: req.user.ciudad,
-      monitoreoActivo: true
-    }).lean();
-
-    const ids = impresoras.map(i => i._id);
-    const latest = await ImpresoraLatest.find({ printerId: { $in: ids } }).lean();
-    const mapLatest = new Map(latest.map(l => [String(l.printerId), l]));
-
-    const now = Date.now();
-    const data = impresoras.map(i => {
-      const l = mapLatest.get(String(i._id)) || null;
-      const derivedOnline = computeDerivedOnline(l, now);
-      return {
-        _id: i._id,
-        displayName: resolveDisplayName(i),
-        model: i.model,
-        host: i.host,
-        serial: i.serial,
-        ciudad: i.ciudad,
-        online: derivedOnline,
-        lastSeenAt: l?.lastSeenAt || null,
-        lastPageCount: l?.lastPageCount || null,
-        lowToner: l?.lowToner || false
-      };
-    });
-
-    res.json({ ok: true, data });
-  } catch (err) {
-    console.error('❌ GET /api/impresoras/mias:', err);
-    res.status(500).json({ ok: false, error: 'Error obteniendo impresoras' });
-  }
-});
 
 // 📱 GET /api/impresoras/mias/:id - Detalle completo de una impresora
 router.get('/impresoras/mias/:id', authMiddleware, async (req, res) => {
@@ -199,8 +158,9 @@ router.get('/impresoras/mias/:id', authMiddleware, async (req, res) => {
     }
 
     // Validar que la impresora pertenezca a la empresa+ciudad del usuario
-    const empresa = await resolveEmpresaDelUsuario(req.user);
-    if (!empresa || String(impresora.empresaId) !== String(empresa._id) || impresora.ciudad !== req.user.ciudad) {
+    const empresas = await empresasDelUsuario(req.user);
+    const empresaIds = empresas.map(e => String(e._id));
+    if (!empresaIds.includes(String(impresora.empresaId)) || impresora.ciudad !== req.user.ciudad) {
       return res.status(403).json({ ok: false, error: 'Sin acceso a esta impresora' });
     }
 
@@ -234,5 +194,215 @@ router.get('/impresoras/mias/:id', authMiddleware, async (req, res) => {
     res.status(500).json({ ok: false, error: 'Error obteniendo detalle' });
   }
 });
+
+// ============================================================
+// ENDPOINTS MOVILES DE NAVEGACION (carpetas / clientes)
+// ============================================================
+
+router.get('/mobile/root', authMiddleware, async (req, res) => {
+  try {
+    const empresas = await empresasDelUsuario(req.user);
+    const empresaIds = empresas.map(e => e._id);
+
+    const carpetas = await Carpeta.find({
+      empresaId: req.user.empresaId,
+      ciudad: req.user.ciudad,
+      parentId: null
+    }).sort({ nombre: 1 }).lean();
+
+    const asignaciones = await AsignacionCarpeta.find({
+      empresaPadreId: req.user.empresaId,
+      ciudad: req.user.ciudad,
+      empresaId: { $in: empresaIds }
+    }).lean();
+    const empresaIdsConCarpeta = new Set(asignaciones.map(a => String(a.empresaId)));
+
+    const clientesSinCarpeta = empresas.filter(e => !empresaIdsConCarpeta.has(String(e._id)));
+
+    const [countsCarpetas, countsClientes] = await Promise.all([
+      contarContenidoCarpetas(carpetas.map(c => c._id), req.user),
+      contarImpresorasPorCliente(clientesSinCarpeta.map(c => c._id), req.user.ciudad)
+    ]);
+
+    res.json({
+      ok: true,
+      carpetas: carpetas.map(c => ({
+        _id: c._id,
+        nombre: c.nombre,
+        subcarpetas: countsCarpetas[String(c._id)]?.subcarpetas || 0,
+        clientes: countsCarpetas[String(c._id)]?.clientes || 0,
+        impresoras: countsCarpetas[String(c._id)]?.impresoras || 0
+      })),
+      clientes: clientesSinCarpeta.map(c => ({
+        _id: c._id,
+        nombre: c.nombre,
+        impresoras: countsClientes[String(c._id)] || 0
+      }))
+    });
+  } catch (err) {
+    console.error('GET /api/mobile/root:', err);
+    res.status(500).json({ ok: false, error: 'Error obteniendo raiz' });
+  }
+});
+
+router.get('/mobile/carpeta/:carpetaId', authMiddleware, async (req, res) => {
+  try {
+    const { carpetaId } = req.params;
+
+    const carpeta = await Carpeta.findOne({
+      _id: carpetaId,
+      empresaId: req.user.empresaId,
+      ciudad: req.user.ciudad
+    }).lean();
+
+    if (!carpeta) {
+      return res.status(404).json({ ok: false, error: 'Carpeta no encontrada' });
+    }
+
+    const subcarpetas = await Carpeta.find({
+      parentId: carpetaId,
+      empresaId: req.user.empresaId,
+      ciudad: req.user.ciudad
+    }).sort({ nombre: 1 }).lean();
+
+    const asignaciones = await AsignacionCarpeta.find({
+      carpetaId,
+      empresaPadreId: req.user.empresaId,
+      ciudad: req.user.ciudad
+    }).lean();
+
+    const clienteIds = asignaciones.map(a => a.empresaId);
+    const clientes = await Empresa.find({
+      _id: { $in: clienteIds }
+    }).sort({ nombre: 1 }).lean();
+
+    const [countsSubcarpetas, countsClientes] = await Promise.all([
+      contarContenidoCarpetas(subcarpetas.map(c => c._id), req.user),
+      contarImpresorasPorCliente(clienteIds, req.user.ciudad)
+    ]);
+
+    res.json({
+      ok: true,
+      carpeta: { _id: carpeta._id, nombre: carpeta.nombre },
+      subcarpetas: subcarpetas.map(c => ({
+        _id: c._id,
+        nombre: c.nombre,
+        subcarpetas: countsSubcarpetas[String(c._id)]?.subcarpetas || 0,
+        clientes: countsSubcarpetas[String(c._id)]?.clientes || 0,
+        impresoras: countsSubcarpetas[String(c._id)]?.impresoras || 0
+      })),
+      clientes: clientes.map(c => ({
+        _id: c._id,
+        nombre: c.nombre,
+        impresoras: countsClientes[String(c._id)] || 0
+      }))
+    });
+  } catch (err) {
+    console.error('GET /api/mobile/carpeta:', err);
+    res.status(500).json({ ok: false, error: 'Error obteniendo carpeta' });
+  }
+});
+
+router.get('/mobile/cliente/:clienteId/impresoras', authMiddleware, async (req, res) => {
+  try {
+    const { clienteId } = req.params;
+
+    const cliente = await Empresa.findOne({
+      _id: clienteId,
+      empresaId: req.user.empresaId,
+      ciudad: req.user.ciudad
+    }).lean();
+
+    if (!cliente) {
+      return res.status(404).json({ ok: false, error: 'Cliente no encontrado' });
+    }
+
+    const impresoras = await Impresora.find({
+      empresaId: cliente._id,
+      ciudad: req.user.ciudad,
+      monitoreoActivo: true
+    }).sort({ createdAt: -1 }).lean();
+
+    const ids = impresoras.map(i => i._id);
+    const latest = await ImpresoraLatest.find({ printerId: { $in: ids } }).lean();
+    const mapLatest = new Map(latest.map(l => [String(l.printerId), l]));
+
+    const now = Date.now();
+    const data = impresoras.map(i => {
+      const l = mapLatest.get(String(i._id)) || null;
+      const derivedOnline = computeDerivedOnline(l, now);
+      return {
+        _id: i._id,
+        displayName: resolveDisplayName(i),
+        model: i.model,
+        host: i.host,
+        serial: i.serial,
+        ciudad: i.ciudad,
+        online: derivedOnline,
+        lastSeenAt: l?.lastSeenAt || null,
+        lastPageCount: l?.lastPageCount || null,
+        lowToner: l?.lowToner || false
+      };
+    });
+
+    res.json({
+      ok: true,
+      cliente: { _id: cliente._id, nombre: cliente.nombre },
+      impresoras: data
+    });
+  } catch (err) {
+    console.error('GET /api/mobile/cliente/:id/impresoras:', err);
+    res.status(500).json({ ok: false, error: 'Error obteniendo impresoras' });
+  }
+});
+
+async function contarContenidoCarpetas(carpetaIds, user) {
+  if (carpetaIds.length === 0) return {};
+  const result = {};
+
+  const subcarpetas = await Carpeta.aggregate([
+    { $match: { parentId: { $in: carpetaIds }, empresaId: user.empresaId, ciudad: user.ciudad } },
+    { $group: { _id: '$parentId', count: { $sum: 1 } } }
+  ]);
+  subcarpetas.forEach(r => {
+    result[String(r._id)] = { subcarpetas: r.count, clientes: 0, impresoras: 0 };
+  });
+
+  const asignaciones = await AsignacionCarpeta.aggregate([
+    { $match: { carpetaId: { $in: carpetaIds }, empresaPadreId: user.empresaId, ciudad: user.ciudad } },
+    { $group: { _id: '$carpetaId', clientes: { $push: '$empresaId' }, count: { $sum: 1 } } }
+  ]);
+
+  for (const r of asignaciones) {
+    const key = String(r._id);
+    if (!result[key]) result[key] = { subcarpetas: 0, clientes: 0, impresoras: 0 };
+    result[key].clientes = r.count;
+
+    const impresorasCount = await Impresora.countDocuments({
+      empresaId: { $in: r.clientes },
+      ciudad: user.ciudad,
+      monitoreoActivo: true
+    });
+    result[key].impresoras = impresorasCount;
+  }
+
+  return result;
+}
+
+async function contarImpresorasPorCliente(clienteIds, ciudad) {
+  if (clienteIds.length === 0) return {};
+  const result = {};
+
+  const counts = await Impresora.aggregate([
+    { $match: { empresaId: { $in: clienteIds }, ciudad, monitoreoActivo: true } },
+    { $group: { _id: '$empresaId', count: { $sum: 1 } } }
+  ]);
+
+  counts.forEach(r => {
+    result[String(r._id)] = r.count;
+  });
+
+  return result;
+}
 
 module.exports = router;
