@@ -157,12 +157,14 @@ router.get('/impresoras/mias/:id', authMiddleware, async (req, res) => {
       return res.status(404).json({ ok: false, error: 'Impresora no encontrada' });
     }
 
-    // Validar que la impresora pertenezca a la empresa+ciudad del usuario
     const empresas = await empresasDelUsuario(req.user);
     const empresaIds = empresas.map(e => String(e._id));
     if (!empresaIds.includes(String(impresora.empresaId)) || impresora.ciudad !== req.user.ciudad) {
       return res.status(403).json({ ok: false, error: 'Sin acceso a esta impresora' });
     }
+
+    const clienteDoc = empresas.find(e => String(e._id) === String(impresora.empresaId));
+    const nombreCliente = clienteDoc?.nombre || null;
 
     const latest = await ImpresoraLatest.findOne({ printerId: id }).lean();
     const derivedOnline = computeDerivedOnline(latest, Date.now());
@@ -172,6 +174,7 @@ router.get('/impresoras/mias/:id', authMiddleware, async (req, res) => {
       data: {
         _id: impresora._id,
         displayName: resolveDisplayName(impresora),
+        clienteNombre: nombreCliente,
         model: impresora.model,
         host: impresora.host,
         serial: impresora.serial,
@@ -190,7 +193,7 @@ router.get('/impresoras/mias/:id', authMiddleware, async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('❌ GET /api/impresoras/mias/:id:', err);
+    console.error('GET /api/impresoras/mias/:id:', err);
     res.status(500).json({ ok: false, error: 'Error obteniendo detalle' });
   }
 });
