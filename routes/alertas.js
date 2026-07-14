@@ -115,4 +115,34 @@ router.get('/alertas/historial', authMiddleware, async (req, res) => {
   }
 });
 
+router.delete('/alertas/:id', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const alerta = await Alerta.findOneAndDelete({
+      _id: id,
+      ciudad: req.user.ciudad
+    });
+
+    if (!alerta) {
+      return res.status(404).json({ ok: false, error: 'Alerta no encontrada' });
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /api/alertas/:id:', err);
+    res.status(500).json({ ok: false, error: 'Error eliminando alerta' });
+  }
+});
+
+router.delete('/alertas', authMiddleware, async (req, res) => {
+  try {
+    const result = await Alerta.deleteMany({ ciudad: req.user.ciudad });
+    res.json({ ok: true, deletedCount: result.deletedCount });
+  } catch (err) {
+    console.error('DELETE /api/alertas:', err);
+    res.status(500).json({ ok: false, error: 'Error eliminando alertas' });
+  }
+});
+
 module.exports = router;
