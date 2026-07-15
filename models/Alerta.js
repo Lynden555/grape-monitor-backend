@@ -50,6 +50,11 @@ const alertaSchema = new mongoose.Schema({
     error: { type: String, default: null }
   }],
 
+  leidaPor: {
+    type: [String],
+    default: []
+  },
+
   enviadoEn: { type: Date, default: Date.now, index: true }
 }, { strict: true });
 

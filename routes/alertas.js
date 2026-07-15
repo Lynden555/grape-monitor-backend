@@ -99,7 +99,7 @@ router.put('/alertas/config/:printerId', authMiddleware, async (req, res) => {
 // 📜 GET /api/alertas/historial - Historial de alertas del usuario (últimas 50)
 router.get('/alertas/historial', authMiddleware, async (req, res) => {
   try {
-    const { ciudad } = req.user;
+    const { ciudad, email } = req.user;
     const limit = Math.min(parseInt(req.query.limit) || 50, 200);
 
     const alertas = await Alerta.find({ ciudad })
@@ -108,9 +108,14 @@ router.get('/alertas/historial', authMiddleware, async (req, res) => {
       .populate('printerId', 'customName printerName host serial')
       .lean();
 
-    res.json({ ok: true, count: alertas.length, alertas });
+    const withLeida = alertas.map(a => ({
+      ...a,
+      leida: Array.isArray(a.leidaPor) && a.leidaPor.includes(email)
+    }));
+
+    res.json({ ok: true, count: withLeida.length, alertas: withLeida });
   } catch (err) {
-    console.error('❌ GET /api/alertas/historial:', err);
+    console.error('GET /api/alertas/historial:', err);
     res.status(500).json({ ok: false, error: 'Error obteniendo historial' });
   }
 });
@@ -142,6 +147,35 @@ router.delete('/alertas', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('DELETE /api/alertas:', err);
     res.status(500).json({ ok: false, error: 'Error eliminando alertas' });
+  }
+});
+
+router.get('/alertas/unread-count', authMiddleware, async (req, res) => {
+  try {
+    const count = await Alerta.countDocuments({
+      ciudad: req.user.ciudad,
+      leidaPor: { $ne: req.user.email }
+    });
+    res.json({ ok: true, count });
+  } catch (err) {
+    console.error('GET /api/alertas/unread-count:', err);
+    res.status(500).json({ ok: false, error: 'Error obteniendo conteo' });
+  }
+});
+
+router.patch('/alertas/mark-read', authMiddleware, async (req, res) => {
+  try {
+    const result = await Alerta.updateMany(
+      {
+        ciudad: req.user.ciudad,
+        leidaPor: { $ne: req.user.email }
+      },
+      { $addToSet: { leidaPor: req.user.email } }
+    );
+    res.json({ ok: true, marked: result.modifiedCount });
+  } catch (err) {
+    console.error('PATCH /api/alertas/mark-read:', err);
+    res.status(500).json({ ok: false, error: 'Error marcando como leídas' });
   }
 });
 
