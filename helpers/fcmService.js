@@ -16,35 +16,35 @@ if (!getApps().length) {
 /**
  * Envía una push notification a un token FCM.
  */
-async function enviarPush(token, titulo, cuerpo, data = {}) {
+async function enviarPush(token, titulo, cuerpo, data = {}, badge = 1) {
   try {
     const stringData = {};
     Object.keys(data).forEach(k => { stringData[k] = String(data[k]); });
 
     const messageId = await getMessaging().send({
-  token,
-  notification: { title: titulo, body: cuerpo },
-  data: stringData,
-  apns: {
-    payload: {
-      aps: {
-        sound: 'default',
-        badge: 1
+      token,
+      notification: { title: titulo, body: cuerpo },
+      data: stringData,
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default',
+            badge
+          }
+        }
+      },
+      android: {
+        notification: {
+          sound: 'default',
+          priority: 'high',
+          channelId: 'grape_alerts'
+        }
       }
-    }
-  },
-  android: {
-    notification: {
-      sound: 'default',
-      priority: 'high',
-      channelId: 'grape_alerts'
-    }
-  }
-});
+    });
 
     return { ok: true, messageId };
   } catch (err) {
-    console.error('❌ Error enviando push:', err.code, err.message);
+    console.error('Error enviando push:', err.code, err.message);
     return { ok: false, error: err.code || err.message };
   }
 }

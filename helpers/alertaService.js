@@ -52,13 +52,19 @@ async function notificarDevices(ciudad, titulo, cuerpo, data) {
   const devices = await DeviceToken.find({ ciudad, activo: true }).lean();
 
   if (devices.length === 0) {
-    console.log(`⚠️ Sin devices activos para ciudad="${ciudad}"`);
+    console.log(`Sin devices activos para ciudad="${ciudad}"`);
     return [];
   }
 
   const resultados = [];
   for (const device of devices) {
-    const result = await enviarPush(device.token, titulo, cuerpo, data);
+    const unreadCount = await Alerta.countDocuments({
+      ciudad,
+      leidaPor: { $ne: device.email }
+    });
+    const badgeCount = unreadCount + 1;
+
+    const result = await enviarPush(device.token, titulo, cuerpo, data, badgeCount);
     resultados.push({
       email: device.email,
       deviceToken: device.token,
@@ -68,7 +74,6 @@ async function notificarDevices(ciudad, titulo, cuerpo, data) {
       error: result.error || null
     });
 
-    // Si el token es inválido, desactivarlo para no volver a intentar
     if (!result.ok && result.error?.includes('registration-token-not-registered')) {
       await DeviceToken.updateOne({ _id: device._id }, { $set: { activo: false } });
     }
