@@ -163,19 +163,28 @@ router.get('/alertas/unread-count', authMiddleware, async (req, res) => {
   }
 });
 
-router.patch('/alertas/mark-read', authMiddleware, async (req, res) => {
+router.patch('/alertas/:id/read', authMiddleware, async (req, res) => {
   try {
-    const result = await Alerta.updateMany(
+    const { id } = req.params;
+
+    const alerta = await Alerta.findOneAndUpdate(
       {
+        _id: id,
         ciudad: req.user.ciudad,
         leidaPor: { $ne: req.user.email }
       },
-      { $addToSet: { leidaPor: req.user.email } }
+      { $addToSet: { leidaPor: req.user.email } },
+      { new: true }
     );
-    res.json({ ok: true, marked: result.modifiedCount });
+
+    if (!alerta) {
+      return res.json({ ok: true, alreadyRead: true });
+    }
+
+    res.json({ ok: true, alreadyRead: false });
   } catch (err) {
-    console.error('PATCH /api/alertas/mark-read:', err);
-    res.status(500).json({ ok: false, error: 'Error marcando como leídas' });
+    console.error('PATCH /api/alertas/:id/read:', err);
+    res.status(500).json({ ok: false, error: 'Error marcando como leída' });
   }
 });
 
