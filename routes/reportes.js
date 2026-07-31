@@ -8,12 +8,31 @@ const CortesMensuales = require('../models/CortesMensuales');
 const { calcularPeriodoCorte } = require('../helpers/cortes');
 const { generarPDFProfesional } = require('../helpers/pdfGenerator');
 
+// MARK: Helpers de periodo
+function partesEnZona(fecha, timezone) {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit'
+  }).formatToParts(fecha);
+
+  return {
+    anio: Number(partes.find(p => p.type === 'year').value),
+    mes: Number(partes.find(p => p.type === 'month').value)
+  };
+}
+
+async function generarFolio(empresaId, mes, anio) {
+  const consecutivo = await CortesMensuales.countDocuments({ empresaId, mes, año: anio });
+  return `GM-${anio}-${String(mes).padStart(2, '0')}-${String(consecutivo + 1).padStart(4, '0')}`;
+}
+
 // 📅 POST /api/impresoras/:id/registrar-corte
 router.post('/impresoras/:id/registrar-corte', async (req, res) => {
   try {
     const printerId = req.params.id;
 
-    const impresora = await Impresora.findById(printerId).lean();
+    const impresora = await Impresora.findById(printerId).populate('empresaId').lean();
     if (!impresora) {
       return res.status(404).json({ ok: false, error: 'Impresora no encontrada' });
     }
@@ -29,7 +48,11 @@ router.post('/impresoras/:id/registrar-corte', async (req, res) => {
     }
 
     const ahora = new Date();
-    const calculos = calcularPeriodoCorte(ultimoCorte, latest);
+    const timezone = impresora.empresaId?.timezone || 'America/Tijuana';
+    const empresaObjectId = impresora.empresaId?._id || impresora.empresaId;
+    const calculos = calcularPeriodoCorte(ultimoCorte, latest, timezone);
+    const { mes, anio } = partesEnZona(ahora, timezone);
+    const folio = await generarFolio(empresaObjectId, mes, anio);
 
     if (process.env.NODE_ENV !== 'production') {
       console.log('🔍 DEBUG CORTE:', {
@@ -47,14 +70,25 @@ router.post('/impresoras/:id/registrar-corte', async (req, res) => {
 
     const nuevoCorte = new CortesMensuales({
       printerId,
-      empresaId: impresora.empresaId,
+      empresaId: empresaObjectId,
+      folio,
       fechaCorte: ahora,
-      mes: ahora.getMonth() + 1,
-      año: ahora.getFullYear(),
+      mes,
+      año: anio,
+      esBaseline: calculos.esBaseline,
+      modoConteo: calculos.modoConteo,
+      fechaInicioPeriodo: calculos.fechaInicioPeriodo,
+      fechaFinPeriodo: calculos.fechaFinPeriodo,
+      periodo: calculos.periodo,
       contadorInicioGeneral: calculos.contadorInicioGeneral,
       contadorFinGeneral: calculos.contadorFinGeneral,
       totalPaginasGeneral: calculos.totalPaginasGeneral,
-      periodo: calculos.periodo,
+      contadorInicioMono: calculos.contadorInicioMono,
+      contadorFinMono: calculos.contadorFinMono,
+      totalPaginasMono: calculos.totalPaginasMono,
+      contadorInicioColor: calculos.contadorInicioColor,
+      contadorFinColor: calculos.contadorFinColor,
+      totalPaginasColor: calculos.totalPaginasColor,
       suppliesInicio: ultimoCorte?.suppliesFin || [],
       suppliesFin: latest.lastSupplies || [],
       nombreImpresora: impresora.printerName || impresora.sysName || impresora.host,
@@ -111,17 +145,7 @@ router.get('/impresoras/:id/generar-pdf', async (req, res) => {
       .populate('empresaId')
       .lean();
 
-    let ultimoCorteAnterior = null;
-    if (corte.ultimoCorteId) {
-      ultimoCorteAnterior = await CortesMensuales.findById(corte.ultimoCorteId).lean();
-    }
-
-    const calculosPeriodo = calcularPeriodoCorte(ultimoCorteAnterior, latest);
-
-    const datosPDF = {
-      ...corte,
-      periodo: calculosPeriodo.periodo
-    };
+    const datosPDF = { ...corte };
 
     const pdfBuffer = await generarPDFProfesional(datosPDF, impresora);
 
