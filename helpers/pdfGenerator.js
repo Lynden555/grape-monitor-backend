@@ -214,6 +214,13 @@ async function generarPDFProfesional(corte, impresora) {
            .font('Helvetica-Bold')
            .text('IMPRESIONES DEL PERÍODO', 20, yPosition);
 
+        if (fechaIni && fechaFin) {
+          doc.fillColor(TINTA_SUAVE)
+             .fontSize(9)
+             .font('Helvetica')
+             .text(corte.esBaseline ? 'Registro inicial' : `${fechaIni} - ${fechaFin}`, 20, yPosition + 1, { width: doc.page.width - 40, align: 'right' });
+        }
+
         const yCaja = yPosition + 20;
         doc.rect(20, yCaja, anchoBloque, altoCaja)
            .fillColor('#ffffff')
