@@ -13,7 +13,8 @@ function iniciarCronTrialExpirado() {
       const resultado = await Usuario.updateMany(
         {
           plan: 'trial',
-          fechaExpiracionTrial: { $lte: ahora }
+          fechaExpiracionTrial: { $lte: ahora },
+          email: { $nin: ['demo.apple@grapelabs.com'] }
         },
         {
           $set: { plan: 'trial_expirado', licenciaTrial: false }

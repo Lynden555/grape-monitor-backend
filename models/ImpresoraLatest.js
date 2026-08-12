@@ -37,4 +37,4 @@ const impresoraLatestSchema = new mongoose.Schema({
   online: { type: Boolean, default: true }
 }, { strict: true });
 
-module.exports = mongoose.model('ImpresoraLatest', impresoraLatestSchema);
+module.exports = mongoose.model('ImpresoraLatest', impresoraLatestSchema); 

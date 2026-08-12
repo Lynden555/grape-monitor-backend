@@ -9,9 +9,9 @@ const Usuario = require('../models/Usuario');
 const LIMITES_POR_PLAN = {
   trial: 5,
   trial_expirado: 0,
-  starter: 50,
-  pro: 200,
-  enterprise: 500,
+  starter: 100,
+  pro: 250,
+  enterprise: 600,
   custom: 9999
 };
 
