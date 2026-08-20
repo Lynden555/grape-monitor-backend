@@ -4,6 +4,7 @@ const router = express.Router();
 const Impresora = require('../models/Impresora');
 const ImpresoraLatest = require('../models/ImpresoraLatest');
 const CortesMensuales = require('../models/CortesMensuales');
+const FolioContador = require('../models/FolioContador');
 
 const { calcularPeriodoCorte } = require('../helpers/cortes');
 const { generarPDFProfesional } = require('../helpers/pdfGenerator');
@@ -23,8 +24,16 @@ function partesEnZona(fecha, timezone) {
 }
 
 async function generarFolio(empresaId, mes, anio) {
-  const consecutivo = await CortesMensuales.countDocuments({ empresaId, mes, año: anio });
-  return `GM-${anio}-${String(mes).padStart(2, '0')}-${String(consecutivo + 1).padStart(4, '0')}`;
+  const sufijo = String(empresaId).slice(-4).toUpperCase();
+  const clave = `${sufijo}-${anio}-${String(mes).padStart(2, '0')}`;
+
+  const contador = await FolioContador.findByIdAndUpdate(
+    clave,
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true }
+  );
+
+  return `GM-${clave}-${String(contador.seq).padStart(4, '0')}`;
 }
 
 // 📅 POST /api/impresoras/:id/registrar-corte
@@ -95,7 +104,17 @@ router.post('/impresoras/:id/registrar-corte', async (req, res) => {
       modeloImpresora: impresora.model || impresora.sysDescr || ''
     });
 
-    const corteGuardado = await nuevoCorte.save();
+    let corteGuardado;
+    try {
+      corteGuardado = await nuevoCorte.save();
+    } catch (errGuardado) {
+      const sufijoRb = String(empresaObjectId).slice(-4).toUpperCase();
+      await FolioContador.findByIdAndUpdate(
+        `${sufijoRb}-${anio}-${String(mes).padStart(2, '0')}`,
+        { $inc: { seq: -1 } }
+      );
+      throw errGuardado;
+    }
 
     await ImpresoraLatest.findOneAndUpdate(
       { printerId },
