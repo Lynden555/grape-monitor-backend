@@ -69,7 +69,7 @@ router.get('/', async (req, res) => {
     if (ciudad) q.ciudad = String(ciudad);
 
     const empresas = await Empresa
-      .find(q, { _id: 1, nombre: 1 })
+      .find(q, { _id: 1, nombre: 1, ubicacion: 1 })
       .sort({ createdAt: -1 })
       .lean();
 
