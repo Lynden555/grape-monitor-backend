@@ -80,6 +80,54 @@ router.get('/', async (req, res) => {
   }
 });
 
+router.get('/buscar-lugar', async (req, res) => {
+  try {
+    const { q } = req.query;
+
+    if (!q || q.trim().length < 3) {
+      return res.status(400).json({ ok: false, error: 'Escribe al menos 3 caracteres' });
+    }
+    if (!process.env.GOOGLE_MAPS_API_KEY) {
+      return res.status(500).json({ ok: false, error: 'Búsqueda no configurada' });
+    }
+
+    const respuesta = await fetch('https://places.googleapis.com/v1/places:searchText', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': process.env.GOOGLE_MAPS_API_KEY,
+        'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.location'
+      },
+      body: JSON.stringify({
+        textQuery: q.trim(),
+        languageCode: 'es',
+        regionCode: 'MX',
+        maxResultCount: 5
+      })
+    });
+
+    if (!respuesta.ok) {
+      const detalle = await respuesta.text();
+      console.error('Error de Places API:', respuesta.status, detalle);
+      return res.status(502).json({ ok: false, error: 'No se pudo buscar la ubicación' });
+    }
+
+    const datos = await respuesta.json();
+
+    const resultados = (datos.places || []).map((lugar) => ({
+      nombre: lugar.displayName?.text || '',
+      direccion: lugar.formattedAddress || '',
+      lat: lugar.location?.latitude,
+      lng: lugar.location?.longitude
+    })).filter((r) => typeof r.lat === 'number' && typeof r.lng === 'number');
+
+    res.json({ ok: true, resultados });
+  } catch (error) {
+    console.error('Error buscando lugar:', error);
+    res.status(500).json({ ok: false, error: 'Error interno del servidor' });
+  }
+});
+
 // 🔍 GET /api/empresas/:id - Obtener empresa específica (con apiKey)
 router.get('/:id', async (req, res) => {
   try {
@@ -136,6 +184,64 @@ router.put('/:id', async (req, res) => {
       ok: false,
       error: 'Error interno del servidor'
     });
+  }
+});
+
+router.put('/:id/ubicacion', async (req, res) => {
+  try {
+    const { lat, lng, direccion, referencia, origen } = req.body;
+
+    if (typeof lat !== 'number' || typeof lng !== 'number') {
+      return res.status(400).json({ ok: false, error: 'Coordenadas inválidas' });
+    }
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({ ok: false, error: 'Coordenadas fuera de rango' });
+    }
+
+    const empresa = await Empresa.findByIdAndUpdate(
+      req.params.id,
+      {
+        $set: {
+          ubicacion: {
+            lat,
+            lng,
+            direccion: direccion || '',
+            referencia: referencia || '',
+            origen: ['gps', 'busqueda', 'manual'].includes(origen) ? origen : 'manual',
+            registradaEn: new Date()
+          }
+        }
+      },
+      { new: true }
+    );
+
+    if (!empresa) {
+      return res.status(404).json({ ok: false, error: 'Empresa no encontrada' });
+    }
+
+    res.json({ ok: true, ubicacion: empresa.ubicacion });
+  } catch (error) {
+    console.error('Error guardando ubicación:', error);
+    res.status(500).json({ ok: false, error: 'Error interno del servidor' });
+  }
+});
+
+router.delete('/:id/ubicacion', async (req, res) => {
+  try {
+    const empresa = await Empresa.findByIdAndUpdate(
+      req.params.id,
+      { $unset: { ubicacion: '' } },
+      { new: true }
+    );
+
+    if (!empresa) {
+      return res.status(404).json({ ok: false, error: 'Empresa no encontrada' });
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error eliminando ubicación:', error);
+    res.status(500).json({ ok: false, error: 'Error interno del servidor' });
   }
 });
 
