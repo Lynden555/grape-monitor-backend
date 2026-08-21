@@ -350,7 +350,11 @@ router.get('/mobile/cliente/:clienteId/impresoras', authMiddleware, async (req, 
 
     res.json({
       ok: true,
-      cliente: { _id: cliente._id, nombre: cliente.nombre },
+      cliente: {
+        _id: cliente._id,
+        nombre: cliente.nombre,
+        ubicacion: cliente.ubicacion || null
+      },
       impresoras: data
     });
   } catch (err) {
