@@ -25,6 +25,9 @@ connectDB();
 // ============================================================
 // MIDDLEWARES GLOBALES
 // ============================================================
+const stripeRoutes = require('./routes/stripe');
+app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -53,6 +56,7 @@ app.use('/', authRoutes);
 app.use('/api/empresas', empresasRoutes);   // /api/empresas, /api/empresas/:id
 app.use('/api', impresorasRoutes);          // /api/empresas/:empresaId/impresoras, /api/impresoras/:id, /api/online-policy
 app.use('/api', carpetasRoutes);            // /api/carpetas*, /api/asignaciones*
+app.use('/api/stripe', stripeRoutes);
 app.use('/api', metricsRoutes);             // /api/metrics/impresoras
 app.use('/api', reportesRoutes);            // /api/impresoras/:id/registrar-corte, /api/impresoras/:id/generar-pdf
 app.use('/api', devicesRoutes);              // /api/device-token

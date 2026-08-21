@@ -27,6 +27,8 @@ const usuarioSchema = new mongoose.Schema({
 
   // 🆕 Sistema de límites por impresoras (no por empresas)
   limiteImpresoras: { type: Number, default: 5 },
+  stripeCustomerId: { type: String, index: true },
+  stripeSubscriptionId: { type: String },
 
   // Para Stripe (después)
   stripeCustomerId: String,
