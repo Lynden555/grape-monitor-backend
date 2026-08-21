@@ -6,16 +6,18 @@ const { PLANES, planPorPriceId } = require('../helpers/stripePlanes');
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-router.post('/checkout', async (req, res) => {
+const authMiddleware = require('../middleware/authMiddleware');
+
+router.post('/checkout', authMiddleware, async (req, res) => {
   try {
-    const { plan, usuarioId } = req.body;
+    const { plan } = req.body;
 
     const config = PLANES[plan];
     if (!config || !config.priceId) {
       return res.status(400).json({ ok: false, error: 'Plan no válido' });
     }
 
-    const usuario = await Usuario.findById(usuarioId);
+    const usuario = await Usuario.findOne({ email: req.user.email });
     if (!usuario) {
       return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
     }
