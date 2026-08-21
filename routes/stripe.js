@@ -17,6 +17,7 @@ router.post('/checkout', authMiddleware, async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Plan no válido' });
     }
 
+   console.log('Checkout - email del token:', req.user.email);
     const usuario = await Usuario.findOne({ email: req.user.email });
     if (!usuario) {
       return res.status(404).json({ ok: false, error: 'Usuario no encontrado' });
