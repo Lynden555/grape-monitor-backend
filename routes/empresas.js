@@ -9,6 +9,7 @@ const CortesMensuales = require('../models/CortesMensuales');
 const { Carpeta, AsignacionCarpeta } = require('../models/Carpeta');
 
 const { generarApiKey } = require('../helpers/apiKey');
+const { computeDerivedOnline } = require('../helpers/onlineStatus');
 
 // 📌 POST /api/empresas - Crear empresa
 router.post('/', async (req, res) => {
@@ -73,7 +74,36 @@ router.get('/', async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    res.json({ ok: true, data: empresas });
+    const empresaIds = empresas.map(e => e._id);
+
+    const impresoras = await Impresora
+      .find({ empresaId: { $in: empresaIds }, monitoreoActivo: true }, { _id: 1, empresaId: 1 })
+      .lean();
+
+    const latest = await ImpresoraLatest
+      .find({ printerId: { $in: impresoras.map(i => i._id) } }, { printerId: 1, lastSeenAt: 1, online: 1 })
+      .lean();
+
+    const mapLatest = new Map(latest.map(l => [String(l.printerId), l]));
+    const now = Date.now();
+
+    const conteo = new Map();
+    for (const imp of impresoras) {
+      const key = String(imp.empresaId);
+      const actual = conteo.get(key) || { total: 0, online: 0 };
+      actual.total += 1;
+      if (computeDerivedOnline(mapLatest.get(String(imp._id)), now)) {
+        actual.online += 1;
+      }
+      conteo.set(key, actual);
+    }
+
+    const data = empresas.map(e => {
+      const c = conteo.get(String(e._id)) || { total: 0, online: 0 };
+      return { ...e, totalImpresoras: c.total, impresorasOnline: c.online };
+    });
+
+    res.json({ ok: true, data });
   } catch (err) {
     console.error('❌ GET /api/empresas:', err);
     res.status(500).json({ ok: false, error: 'Error listando empresas' });
