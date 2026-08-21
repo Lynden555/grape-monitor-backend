@@ -239,7 +239,8 @@ router.get('/mobile/root', authMiddleware, async (req, res) => {
       clientes: clientesSinCarpeta.map(c => ({
         _id: c._id,
         nombre: c.nombre,
-        impresoras: countsClientes[String(c._id)] || 0
+        impresoras: countsClientes[String(c._id)]?.total || 0,
+        impresorasOnline: countsClientes[String(c._id)]?.online || 0
       }))
     });
   } catch (err) {
@@ -297,7 +298,8 @@ router.get('/mobile/carpeta/:carpetaId', authMiddleware, async (req, res) => {
       clientes: clientes.map(c => ({
         _id: c._id,
         nombre: c.nombre,
-        impresoras: countsClientes[String(c._id)] || 0
+        impresoras: countsClientes[String(c._id)]?.total || 0,
+        impresorasOnline: countsClientes[String(c._id)]?.online || 0
       }))
     });
   } catch (err) {
@@ -398,16 +400,30 @@ async function contarContenidoCarpetas(carpetaIds, user) {
 
 async function contarImpresorasPorCliente(clienteIds, ciudad) {
   if (clienteIds.length === 0) return {};
+
+  const impresoras = await Impresora
+    .find({ empresaId: { $in: clienteIds }, ciudad, monitoreoActivo: true }, { _id: 1, empresaId: 1 })
+    .lean();
+
+  if (impresoras.length === 0) return {};
+
+  const latest = await ImpresoraLatest
+    .find({ printerId: { $in: impresoras.map(i => i._id) } }, { printerId: 1, lastSeenAt: 1, online: 1 })
+    .lean();
+
+  const mapLatest = new Map(latest.map(l => [String(l.printerId), l]));
+  const now = Date.now();
   const result = {};
 
-  const counts = await Impresora.aggregate([
-    { $match: { empresaId: { $in: clienteIds }, ciudad, monitoreoActivo: true } },
-    { $group: { _id: '$empresaId', count: { $sum: 1 } } }
-  ]);
-
-  counts.forEach(r => {
-    result[String(r._id)] = r.count;
-  });
+  for (const imp of impresoras) {
+    const key = String(imp.empresaId);
+    const actual = result[key] || { total: 0, online: 0 };
+    actual.total += 1;
+    if (computeDerivedOnline(mapLatest.get(String(imp._id)), now)) {
+      actual.online += 1;
+    }
+    result[key] = actual;
+  }
 
   return result;
 }
