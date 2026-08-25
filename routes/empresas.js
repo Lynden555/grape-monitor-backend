@@ -9,7 +9,7 @@ const CortesMensuales = require('../models/CortesMensuales');
 const { Carpeta, AsignacionCarpeta } = require('../models/Carpeta');
 
 const { generarApiKey } = require('../helpers/apiKey');
-const { computeDerivedOnline } = require('../helpers/onlineStatus');
+const { computeDerivedOnline, estadoFlota } = require('../helpers/onlineStatus');
 
 // 📌 POST /api/empresas - Crear empresa
 router.post('/', async (req, res) => {
@@ -90,17 +90,22 @@ router.get('/', async (req, res) => {
     const conteo = new Map();
     for (const imp of impresoras) {
       const key = String(imp.empresaId);
-      const actual = conteo.get(key) || { total: 0, online: 0 };
+      const actual = conteo.get(key) || { total: 0, online: 0, latests: [] };
       actual.total += 1;
-      if (computeDerivedOnline(mapLatest.get(String(imp._id)), now)) {
-        actual.online += 1;
-      }
+      const l = mapLatest.get(String(imp._id)) || null;
+      actual.latests.push(l);
+      if (computeDerivedOnline(l, now)) actual.online += 1;
       conteo.set(key, actual);
     }
 
     const data = empresas.map(e => {
-      const c = conteo.get(String(e._id)) || { total: 0, online: 0 };
-      return { ...e, totalImpresoras: c.total, impresorasOnline: c.online };
+      const c = conteo.get(String(e._id)) || { total: 0, online: 0, latests: [] };
+      return {
+        ...e,
+        totalImpresoras: c.total,
+        impresorasOnline: c.online,
+        estadoFlota: estadoFlota(c.latests, now)
+      };
     });
 
     res.json({ ok: true, data });

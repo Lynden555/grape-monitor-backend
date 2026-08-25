@@ -16,7 +16,35 @@ function computeDerivedOnline(latest, now = Date.now()) {
   return age <= ONLINE_STALE_MS;
 }
 
+const ABANDONO_MS = Number(process.env.ABANDONO_MS || 2 * 24 * 60 * 60 * 1000);
+
+/**
+ * Estado agregado de una flota.
+ * rojo: alguna lleva más de 2 días sin reportar
+ * amarillo: alguna desconectada, ninguna pasa de 2 días
+ * verde: todas en línea
+ * gris: sin equipos
+ */
+function estadoFlota(latests, now = Date.now()) {
+  if (!latests || latests.length === 0) return 'gris';
+
+  let hayDesconectada = false;
+
+  for (const l of latests) {
+    if (computeDerivedOnline(l, now)) continue;
+
+    hayDesconectada = true;
+
+    const ts = l?.lastSeenAt ? new Date(l.lastSeenAt).getTime() : null;
+    if (!Number.isFinite(ts) || now - ts > ABANDONO_MS) return 'rojo';
+  }
+
+  return hayDesconectada ? 'amarillo' : 'verde';
+}
+
 module.exports = {
   ONLINE_STALE_MS,
-  computeDerivedOnline
+  ABANDONO_MS,
+  computeDerivedOnline,
+  estadoFlota
 };
