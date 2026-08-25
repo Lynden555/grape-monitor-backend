@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const { Carpeta, AsignacionCarpeta } = require('../models/Carpeta');
+const Impresora = require('../models/Impresora');
 
 // ============================================================
 // 📁 CARPETAS
@@ -22,12 +23,48 @@ router.get('/carpetas', async (req, res) => {
     const carpetas = await Carpeta.find({
       empresaId,
       ciudad
-    }).sort({ fechaCreacion: -1 });
+    }).sort({ fechaCreacion: -1 }).lean();
 
-    res.json({
-      ok: true,
-      data: carpetas
-    });
+    const carpetaIds = carpetas.map(c => c._id);
+
+    const [subs, asignaciones] = await Promise.all([
+      Carpeta.find({ parentId: { $in: carpetaIds }, empresaId, ciudad }, { parentId: 1 }).lean(),
+      AsignacionCarpeta.find(
+        { carpetaId: { $in: carpetaIds }, empresaPadreId: empresaId, ciudad },
+        { carpetaId: 1, empresaId: 1 }
+      ).lean()
+    ]);
+
+    const empresasEnCarpetas = asignaciones.map(a => a.empresaId);
+    const impresoras = await Impresora.find(
+      { empresaId: { $in: empresasEnCarpetas }, ciudad, monitoreoActivo: true },
+      { empresaId: 1 }
+    ).lean();
+
+    const impresorasPorEmpresa = new Map();
+    for (const imp of impresoras) {
+      const k = String(imp.empresaId);
+      impresorasPorEmpresa.set(k, (impresorasPorEmpresa.get(k) || 0) + 1);
+    }
+
+    const conteo = new Map();
+    for (const c of carpetas) conteo.set(String(c._id), { subcarpetas: 0, clientes: 0, impresoras: 0 });
+
+    for (const s of subs) {
+      const k = String(s.parentId);
+      if (conteo.has(k)) conteo.get(k).subcarpetas += 1;
+    }
+
+    for (const a of asignaciones) {
+      const k = String(a.carpetaId);
+      if (!conteo.has(k)) continue;
+      conteo.get(k).clientes += 1;
+      conteo.get(k).impresoras += impresorasPorEmpresa.get(String(a.empresaId)) || 0;
+    }
+
+    const data = carpetas.map(c => ({ ...c, ...conteo.get(String(c._id)) }));
+
+    res.json({ ok: true, data });
 
   } catch (error) {
     console.error('❌ Error obteniendo carpetas:', error);
