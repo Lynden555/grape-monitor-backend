@@ -165,6 +165,7 @@ router.get('/impresoras/mias/:id', authMiddleware, async (req, res) => {
 
     const clienteDoc = empresas.find(e => String(e._id) === String(impresora.empresaId));
     const nombreCliente = clienteDoc?.nombre || null;
+    const ubicacionCliente = clienteDoc?.ubicacion || null;
 
     const latest = await ImpresoraLatest.findOne({ printerId: id }).lean();
     const derivedOnline = computeDerivedOnline(latest, Date.now());
@@ -175,6 +176,7 @@ router.get('/impresoras/mias/:id', authMiddleware, async (req, res) => {
         _id: impresora._id,
         displayName: resolveDisplayName(impresora),
         clienteNombre: nombreCliente,
+        ubicacionCliente,
         model: impresora.model,
         host: impresora.host,
         serial: impresora.serial,
