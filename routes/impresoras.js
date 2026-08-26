@@ -5,7 +5,7 @@ const Impresora = require('../models/Impresora');
 const ImpresoraLatest = require('../models/ImpresoraLatest');
 const CortesMensuales = require('../models/CortesMensuales');
 
-const { computeDerivedOnline, ONLINE_STALE_MS } = require('../helpers/onlineStatus');
+const { computeDerivedOnline, ONLINE_STALE_MS, estadoFlota } = require('../helpers/onlineStatus');
 const Empresa = require('../models/Empresa');
 const authMiddleware = require('../middleware/authMiddleware');
 const { Carpeta, AsignacionCarpeta } = require('../models/Carpeta');
@@ -240,7 +240,8 @@ router.get('/mobile/root', authMiddleware, async (req, res) => {
         _id: c._id,
         nombre: c.nombre,
         impresoras: countsClientes[String(c._id)]?.total || 0,
-        impresorasOnline: countsClientes[String(c._id)]?.online || 0
+        impresorasOnline: countsClientes[String(c._id)]?.online || 0,
+        estadoFlota: countsClientes[String(c._id)]?.estado || 'gris'
       }))
     });
   } catch (err) {
@@ -299,7 +300,8 @@ router.get('/mobile/carpeta/:carpetaId', authMiddleware, async (req, res) => {
         _id: c._id,
         nombre: c.nombre,
         impresoras: countsClientes[String(c._id)]?.total || 0,
-        impresorasOnline: countsClientes[String(c._id)]?.online || 0
+        impresorasOnline: countsClientes[String(c._id)]?.online || 0,
+        estadoFlota: countsClientes[String(c._id)]?.estado || 'gris'
       }))
     });
   } catch (err) {
@@ -417,12 +419,16 @@ async function contarImpresorasPorCliente(clienteIds, ciudad) {
 
   for (const imp of impresoras) {
     const key = String(imp.empresaId);
-    const actual = result[key] || { total: 0, online: 0 };
+    const actual = result[key] || { total: 0, online: 0, latests: [] };
     actual.total += 1;
-    if (computeDerivedOnline(mapLatest.get(String(imp._id)), now)) {
-      actual.online += 1;
-    }
+    const l = mapLatest.get(String(imp._id)) || null;
+    actual.latests.push(l);
+    if (computeDerivedOnline(l, now)) actual.online += 1;
     result[key] = actual;
+  }
+
+  for (const key of Object.keys(result)) {
+    result[key].estado = estadoFlota(result[key].latests, now);
   }
 
   return result;
