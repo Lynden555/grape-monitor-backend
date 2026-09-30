@@ -28,6 +28,7 @@ router.get('/visitas', authMiddleware, async (req, res) => {
       return {
         _id: v._id,
         printerId: v.printerId,
+        empresaId: v.empresaId,
         nota: v.nota,
         creadaEn: v.creadaEn,
         impresoraNombre: imp?.printerName || imp?.sysName || imp?.host || 'Impresora',
