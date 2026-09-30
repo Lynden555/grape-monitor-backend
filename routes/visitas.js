@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Visita = require('../models/Visita');
 const Impresora = require('../models/Impresora');
+const ImpresoraLatest = require('../models/ImpresoraLatest');
 const Empresa = require('../models/Empresa');
 const authMiddleware = require('../middleware/authMiddleware');
 
@@ -14,13 +15,18 @@ router.get('/visitas', authMiddleware, async (req, res) => {
 
     if (visitas.length === 0) return res.json({ ok: true, data: [] });
 
-    const [impresoras, empresas] = await Promise.all([
+    const [impresoras, empresas, latests] = await Promise.all([
       Impresora.find({ _id: { $in: visitas.map(v => v.printerId) } }).lean(),
-      Empresa.find({ _id: { $in: visitas.map(v => v.empresaId) } }).lean()
+      Empresa.find({ _id: { $in: visitas.map(v => v.empresaId) } }).lean(),
+      ImpresoraLatest.find(
+        { printerId: { $in: visitas.map(v => v.printerId) } },
+        { printerId: 1, lastSupplies: 1 }
+      ).lean()
     ]);
 
     const mapImp = new Map(impresoras.map(i => [String(i._id), i]));
     const mapEmp = new Map(empresas.map(e => [String(e._id), e]));
+    const mapLat = new Map(latests.map(l => [String(l.printerId), l]));
 
     const data = visitas.map(v => {
       const imp = mapImp.get(String(v.printerId));
@@ -34,7 +40,8 @@ router.get('/visitas', authMiddleware, async (req, res) => {
         impresoraNombre: imp?.printerName || imp?.sysName || imp?.host || 'Impresora',
         impresoraModelo: imp?.model || null,
         clienteNombre: emp?.nombre || 'Cliente',
-        ubicacion: emp?.ubicacion || null
+        ubicacion: emp?.ubicacion || null,
+        supplies: mapLat.get(String(v.printerId))?.lastSupplies || []
       };
     });
 
