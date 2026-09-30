@@ -252,6 +252,42 @@ router.get('/mobile/root', authMiddleware, async (req, res) => {
   }
 });
 
+router.get('/mobile/buscar', authMiddleware, async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    if (q.length < 2) return res.json({ ok: true, clientes: [] });
+
+    const escapado = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    const empresas = await Empresa.find({
+      empresaId: req.user.empresaId,
+      ciudad: req.user.ciudad,
+      nombre: { $regex: escapado, $options: 'i' }
+    }).sort({ nombre: 1 }).limit(30).lean();
+
+    if (empresas.length === 0) return res.json({ ok: true, clientes: [] });
+
+    const counts = await contarImpresorasPorCliente(
+      empresas.map(e => e._id),
+      req.user.ciudad
+    );
+
+    res.json({
+      ok: true,
+      clientes: empresas.map(e => ({
+        _id: e._id,
+        nombre: e.nombre,
+        impresoras: counts[String(e._id)]?.total || 0,
+        impresorasOnline: counts[String(e._id)]?.online || 0,
+        estadoFlota: counts[String(e._id)]?.estado || 'gris'
+      }))
+    });
+  } catch (err) {
+    console.error('GET /api/mobile/buscar:', err);
+    res.status(500).json({ ok: false, error: 'Error buscando clientes' });
+  }
+});
+
 router.get('/mobile/carpeta/:carpetaId', authMiddleware, async (req, res) => {
   try {
     const { carpetaId } = req.params;
