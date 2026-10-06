@@ -122,19 +122,20 @@ router.post('/metrics/impresoras', async (req, res) => {
       return isFinite(lvl) && lvl <= 20;
     });
 
-    await ImpresoraLatest.findOneAndUpdate(
-      { printerId: impresora._id },
-      {
-        $set: {
+    const camposLectura = snmpOk
+      ? {
           lastPageCount: (typeof pageCount === 'number' && !Number.isNaN(pageCount)) ? Number(pageCount) : null,
           lastPageMono: (typeof pageCountMono === 'number' && !Number.isNaN(pageCountMono)) ? Number(pageCountMono) : null,
           lastPageColor: (typeof pageCountColor === 'number' && !Number.isNaN(pageCountColor)) ? Number(pageCountColor) : null,
           lastSupplies: Array.isArray(supplies) ? supplies : [],
           lastSeenAt,
-          lowToner,
-          online: snmpOk,
+          lowToner
         }
-      },
+      : {};
+
+    await ImpresoraLatest.findOneAndUpdate(
+      { printerId: impresora._id },
+      { $set: { ...camposLectura, online: snmpOk } },
       { new: true, upsert: true }
     );
 
