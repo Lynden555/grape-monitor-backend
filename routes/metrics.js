@@ -77,7 +77,8 @@ router.post('/metrics/impresoras', async (req, res) => {
       sysName,
       sysDescr,
       printerName,
-      model
+      model,
+      agentVersion
     };
 
     const setOnInsert = { createdAt: new Date() };
