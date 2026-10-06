@@ -183,6 +183,7 @@ router.get('/impresoras/mias/:id', authMiddleware, async (req, res) => {
         sysName: impresora.sysName,
         sysDescr: impresora.sysDescr,
         ciudad: impresora.ciudad,
+        agentVersion: impresora.agentVersion || null,
         online: derivedOnline,
         lastSeenAt: latest?.lastSeenAt || null,
         counters: {

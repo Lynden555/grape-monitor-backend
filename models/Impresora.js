@@ -13,6 +13,7 @@ const impresoraSchema = new mongoose.Schema({
   sysName: { type: String, default: null },
   sysDescr: { type: String, default: null },
   model: { type: String, default: null },
+  agentVersion: { type: String, default: null },
   printerName: { type: String, default: null },
   customName: { type: String, default: null },
   // 🆕 Flag para impresoras que exceden el límite del plan
