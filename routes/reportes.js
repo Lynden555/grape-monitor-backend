@@ -35,6 +35,82 @@ async function generarFolio(empresaId, mes, anio) {
 
   return `GM-${clave}-${String(contador.seq).padStart(4, '0')}`;
 }
+async function ejecutarCorte(printerId) {
+  const impresora = await Impresora.findById(printerId).populate('empresaId').lean();
+  if (!impresora) return { ok: false, error: 'Impresora no encontrada' };
+
+  const latest = await ImpresoraLatest.findOne({ printerId }).lean();
+  if (!latest) return { ok: false, error: 'Sin datos de la impresora' };
+
+  let ultimoCorte = null;
+  if (latest.ultimoCorteId) {
+    ultimoCorte = await CortesMensuales.findById(latest.ultimoCorteId).lean();
+  }
+
+  const ahora = new Date();
+  const timezone = impresora.empresaId?.timezone || 'America/Tijuana';
+  const empresaObjectId = impresora.empresaId?._id || impresora.empresaId;
+  const calculos = calcularPeriodoCorte(ultimoCorte, latest, timezone);
+  const { mes, anio } = partesEnZona(ahora, timezone);
+  const folio = await generarFolio(empresaObjectId, mes, anio);
+
+  const nuevoCorte = new CortesMensuales({
+    printerId,
+    empresaId: empresaObjectId,
+    folio,
+    fechaCorte: ahora,
+    mes,
+    año: anio,
+    esBaseline: calculos.esBaseline,
+    modoConteo: calculos.modoConteo,
+    fechaInicioPeriodo: calculos.fechaInicioPeriodo,
+    fechaFinPeriodo: calculos.fechaFinPeriodo,
+    periodo: calculos.periodo,
+    contadorInicioGeneral: calculos.contadorInicioGeneral,
+    contadorFinGeneral: calculos.contadorFinGeneral,
+    totalPaginasGeneral: calculos.totalPaginasGeneral,
+    contadorInicioMono: calculos.contadorInicioMono,
+    contadorFinMono: calculos.contadorFinMono,
+    totalPaginasMono: calculos.totalPaginasMono,
+    contadorInicioColor: calculos.contadorInicioColor,
+    contadorFinColor: calculos.contadorFinColor,
+    totalPaginasColor: calculos.totalPaginasColor,
+    suppliesInicio: ultimoCorte?.suppliesFin || [],
+    suppliesFin: latest.lastSupplies || [],
+    nombreImpresora: impresora.printerName || impresora.sysName || impresora.host,
+    modeloImpresora: impresora.model || impresora.sysDescr || ''
+  });
+
+  let corteGuardado;
+  try {
+    corteGuardado = await nuevoCorte.save();
+  } catch (errGuardado) {
+    const sufijoRb = String(empresaObjectId).slice(-4).toUpperCase();
+    await FolioContador.findByIdAndUpdate(
+      `${sufijoRb}-${anio}-${String(mes).padStart(2, '0')}`,
+      { $inc: { seq: -1 } }
+    );
+    throw errGuardado;
+  }
+
+  await ImpresoraLatest.findOneAndUpdate(
+    { printerId },
+    { $set: { ultimoCorteId: corteGuardado._id, lastCutDate: ahora } }
+  );
+
+  return {
+    ok: true,
+    corteId: corteGuardado._id,
+    folio,
+    nombreImpresora: impresora.printerName || impresora.sysName || impresora.host,
+    clienteNombre: impresora.empresaId?.nombre || null,
+    datos: {
+      periodo: `${calculos.contadorInicioGeneral} → ${latest.lastPageCount || 0}`,
+      totalPaginas: calculos.totalPaginasGeneral,
+      fecha: ahora.toLocaleDateString()
+    }
+  };
+}
 
 // 📅 POST /api/impresoras/:id/registrar-corte
 router.post('/impresoras/:id/registrar-corte', async (req, res) => {
