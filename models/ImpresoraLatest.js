@@ -30,6 +30,8 @@ const impresoraLatestSchema = new mongoose.Schema({
       enum: ['umbral', 'mitad', 'critico', null],
       default: null
     },
+    lecturasVacio: { type: Number, default: 0 },
+    retiroNotificado: { type: Boolean, default: false },
     updatedAt: { type: Date, default: Date.now }
   }],
   lastSeenAt: { type: Date, default: null },

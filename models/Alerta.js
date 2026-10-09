@@ -19,7 +19,7 @@ const alertaSchema = new mongoose.Schema({
   // Tipo de alerta (genérico para futuro: TONER_BAJO, IMPRESORA_OFFLINE, etc.)
   tipoAlerta: {
     type: String,
-    enum: ['TONER_BAJO', 'IMPRESORA_OFFLINE', 'PAPEL_ATASCADO'],
+    enum: ['TONER_BAJO', 'IMPRESORA_OFFLINE', 'PAPEL_ATASCADO', 'CONSUMIBLE_RETIRADO'],
     default: 'TONER_BAJO',
     index: true
   },
@@ -29,7 +29,7 @@ const alertaSchema = new mongoose.Schema({
   nivel: { type: Number, default: null },        // % al momento del disparo
   nivelEscalado: {                                // cuál de los 3 niveles
     type: String,
-    enum: ['umbral', 'mitad', 'critico'],
+    enum: ['umbral', 'mitad', 'critico', 'retiro'],
     default: null
   },
 

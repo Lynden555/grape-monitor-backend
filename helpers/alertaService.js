@@ -11,6 +11,15 @@ const NIVEL_CRITICO = 5;
 // Si el nivel sube más de este delta, asumimos cambio de cartucho
 const DELTA_RESET_CARTUCHO = 30;
 
+// Por debajo de esto se considera que no hay consumible
+const NIVEL_VACIO = 2;
+
+// Nivel previo mínimo para que una caída a cero sea sospechosa
+const NIVEL_PREVIO_SOSPECHOSO = 25;
+
+// Lecturas consecutivas en vacío para confirmar el retiro
+const LECTURAS_PARA_CONFIRMAR = 3;
+
 /**
  * Calcula el porcentaje real de un supply.
  */
@@ -18,8 +27,13 @@ function calcularPorcentaje(supply) {
   const level = Number(supply?.level);
   const max = Number(supply?.max);
   if (!isFinite(level)) return null;
-  if (isFinite(max) && max > 0) return (level / max) * 100;
-  return level; // asumir que level ya es porcentaje
+  if (level < 0) return null;
+  if (isFinite(max) && max > 0) {
+    if (level > max) return null;
+    return (level / max) * 100;
+  }
+  if (level > 100) return null;
+  return level;
 }
 
 /**
@@ -111,17 +125,86 @@ async function procesarPosibleAlerta(impresora, supplies) {
       if (!supply?.name) continue;
 
       const porcentaje = calcularPorcentaje(supply);
-      if (porcentaje === null) continue;
-
       const previo = mapPrevio[supply.name];
+
+      if (porcentaje === null) {
+        if (previo) {
+          nuevoTracking.push({
+            name: previo.name,
+            ultimoNivel: previo.ultimoNivel,
+            cicloActual: previo.cicloActual,
+            ultimoUmbralDisparado: previo.ultimoUmbralDisparado,
+            lecturasVacio: previo.lecturasVacio || 0,
+            retiroNotificado: previo.retiroNotificado || false,
+            updatedAt: previo.updatedAt
+          });
+        }
+        continue;
+      }
+
       let cicloActual = previo?.cicloActual || 1;
       let ultimoUmbralDisparado = previo?.ultimoUmbralDisparado || null;
+      let lecturasVacio = previo?.lecturasVacio || 0;
+      let retiroNotificado = previo?.retiroNotificado || false;
 
       // Detección de cambio de cartucho (nivel subió mucho)
       if (previo && porcentaje - previo.ultimoNivel >= DELTA_RESET_CARTUCHO) {
         cicloActual += 1;
         ultimoUmbralDisparado = null;
+        lecturasVacio = 0;
+        retiroNotificado = false;
         console.log(`🔄 Reset cartucho detectado en ${supply.name} (${previo.ultimoNivel}% → ${porcentaje.toFixed(1)}%). Ciclo ${cicloActual}`);
+      }
+
+      const caidaSospechosa =
+        porcentaje <= NIVEL_VACIO &&
+        previo &&
+        previo.ultimoNivel >= NIVEL_PREVIO_SOSPECHOSO;
+
+      if (caidaSospechosa) {
+        lecturasVacio += 1;
+
+        if (lecturasVacio < LECTURAS_PARA_CONFIRMAR) {
+          console.log(`⏳ Caída no confiable en ${supply.name} (${previo.ultimoNivel}% → ${porcentaje.toFixed(1)}%). ${lecturasVacio}/${LECTURAS_PARA_CONFIRMAR}`);
+          nuevoTracking.push({
+            name: supply.name,
+            ultimoNivel: previo.ultimoNivel,
+            cicloActual,
+            ultimoUmbralDisparado,
+            lecturasVacio,
+            retiroNotificado,
+            updatedAt: new Date()
+          });
+          continue;
+        }
+
+        if (!retiroNotificado) {
+          disparos.push({
+            supplyName: supply.name,
+            nivel: Math.round(porcentaje * 10) / 10,
+            nivelPrevio: Math.round(previo.ultimoNivel * 10) / 10,
+            nivelEscalado: 'retiro',
+            cicloId: `${impresora._id}-${supply.name}-c${cicloActual}`
+          });
+          retiroNotificado = true;
+          console.log(`📦 Retiro confirmado en ${supply.name} tras ${lecturasVacio} lecturas`);
+        }
+
+        nuevoTracking.push({
+          name: supply.name,
+          ultimoNivel: porcentaje,
+          cicloActual,
+          ultimoUmbralDisparado,
+          lecturasVacio,
+          retiroNotificado,
+          updatedAt: new Date()
+        });
+        continue;
+      }
+
+      if (porcentaje > NIVEL_VACIO) {
+        lecturasVacio = 0;
+        retiroNotificado = false;
       }
 
       // Determinar si dispara
@@ -141,6 +224,8 @@ async function procesarPosibleAlerta(impresora, supplies) {
         ultimoNivel: porcentaje,
         cicloActual,
         ultimoUmbralDisparado,
+        lecturasVacio,
+        retiroNotificado,
         updatedAt: new Date()
       });
     }
@@ -161,18 +246,23 @@ async function procesarPosibleAlerta(impresora, supplies) {
       const titulos = {
         umbral: `Tóner bajo en ${nombreImpresora} ⚠️ `,
         mitad: `Tóner muy bajo en ${nombreImpresora} 🟠`,
-        critico: `Crítico: tóner casi vacío en ${nombreImpresora} 🔴`
+        critico: `Crítico: tóner casi vacío en ${nombreImpresora} 🔴`,
+        retiro: `Posible retiro de consumible en ${nombreImpresora} 📦`
       };
-      const cuerpo = nombreCliente
-        ? `${nombreCliente} · ${d.supplyName}: ${d.nivel}%`
+      const esRetiro = d.nivelEscalado === 'retiro';
+      const detalle = esRetiro
+        ? `${d.supplyName} dejó de reportar nivel (venía en ${d.nivelPrevio}%)`
         : `${d.supplyName}: ${d.nivel}%`;
+      const cuerpo = nombreCliente
+        ? `${nombreCliente} · ${detalle}`
+        : detalle;
 
       const destinatariosEnviados = await notificarDevices(
         impresora.ciudad,
         titulos[d.nivelEscalado],
         cuerpo,
         {
-          tipoAlerta: 'TONER_BAJO',
+          tipoAlerta: esRetiro ? 'CONSUMIBLE_RETIRADO' : 'TONER_BAJO',
           printerId: impresora._id.toString(),
           supplyName: d.supplyName,
           nivel: d.nivel,
@@ -184,7 +274,7 @@ async function procesarPosibleAlerta(impresora, supplies) {
         printerId: impresora._id,
         empresaId: impresora.empresaId,
         ciudad: impresora.ciudad,
-        tipoAlerta: 'TONER_BAJO',
+        tipoAlerta: esRetiro ? 'CONSUMIBLE_RETIRADO' : 'TONER_BAJO',
         supplyName: d.supplyName,
         nivel: d.nivel,
         nivelEscalado: d.nivelEscalado,
@@ -202,6 +292,7 @@ async function procesarPosibleAlerta(impresora, supplies) {
 }
 
 module.exports = {
+  calcularPorcentaje,
   procesarPosibleAlerta,
   // Exportados para tests unitarios futuros
   _internal: {

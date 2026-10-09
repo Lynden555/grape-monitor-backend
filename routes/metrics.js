@@ -5,7 +5,7 @@ const Impresora = require('../models/Impresora');
 const ImpresoraLatest = require('../models/ImpresoraLatest');
 const Usuario = require('../models/Usuario');
 const { puedeActivarUnaMas } = require('../helpers/limitesPlan');
-const { procesarPosibleAlerta } = require('../helpers/alertaService');
+const { procesarPosibleAlerta, calcularPorcentaje } = require('../helpers/alertaService');
 
 // 📊 POST /api/metrics/impresoras - Ingesta de métricas desde el agente SNMP
 router.post('/metrics/impresoras', async (req, res) => {
@@ -116,10 +116,8 @@ router.post('/metrics/impresoras', async (req, res) => {
       !!sysName || !!sysDescr || !!serial || !!model;
 
     const lowToner = Array.isArray(supplies) && supplies.some(s => {
-      const lvl = Number(s?.level);
-      const max = Number(s?.max);
-      if (isFinite(lvl) && isFinite(max) && max > 0) return (lvl / max) * 100 <= 20;
-      return isFinite(lvl) && lvl <= 20;
+      const pct = calcularPorcentaje(s);
+      return pct !== null && pct <= 20;
     });
 
     const camposLectura = snmpOk
