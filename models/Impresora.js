@@ -21,7 +21,10 @@ const impresoraSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 }, { strict: true });
 
-impresoraSchema.index({ empresaId: 1, serial: 1 }, { unique: true, sparse: true });
+impresoraSchema.index(
+  { empresaId: 1, serial: 1 },
+  { unique: true, partialFilterExpression: { serial: { $type: 'string' } } }
+);
 impresoraSchema.index({ empresaId: 1, host: 1 }, { unique: true });
 
 module.exports = mongoose.model('Impresora', impresoraSchema);
